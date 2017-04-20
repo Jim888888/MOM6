@@ -4,7 +4,7 @@ module MOM_state_initialization
 ! This file is part of MOM6. See LICENSE.md for the license.
 
 use MOM_debugging, only : hchksum, qchksum, uvchksum
-use MOM_coms, only : max_across_PEs, min_across_PEs
+use MOM_coms, only : max_across_PEs, min_across_PEs, reproducing_sum
 use MOM_cpu_clock, only : cpu_clock_id, cpu_clock_begin, cpu_clock_end
 use MOM_cpu_clock, only :  CLOCK_ROUTINE, CLOCK_LOOP
 use MOM_domains, only : pass_var, pass_vector, sum_across_PEs, broadcast
@@ -451,21 +451,22 @@ subroutine MOM_initialize_state(u, v, h, tv, Time, G, GV, PF, dirs, &
                  "   DOME - specified inflow on northern boundary\n"//&
                  "   tidal_bay - Flather with tidal forcing on eastern boundary\n"//&
                  "   supercritical - now only needed here for the allocations\n"//&
+                 "   Kelvin - barotropic Kelvin wave forcing on the western boundary\n"//&
                  "   USER - user specified", default="none")
     if (trim(config) /= "none") OBC%OBC_user_config = trim(config)
-    if (open_boundary_query(OBC, apply_specified_OBC=.true.)) then
-      if (trim(config) == "DOME") then
-        call DOME_set_OBC_data(OBC, tv, G, GV, PF, tracer_Reg)
-      elseif (lowercase(trim(config)) == "supercritical") then
-        call supercritical_set_OBC_data(OBC, G, PF)
-      elseif (trim(config) == "tidal_bay") then
-        OBC%update_OBC = .true.
-      elseif (trim(config) == "USER") then
-        call user_set_OBC_data(OBC, tv, G, PF, tracer_Reg)
-      elseif (.not. trim(config) == "none") then
-        call MOM_error(FATAL, "The open boundary conditions specified by "//&
-                "OBC_USER_CONFIG = "//trim(config)//" have not been fully implemented.")
-      endif
+    if (trim(config) == "DOME") then
+      call DOME_set_OBC_data(OBC, tv, G, GV, PF, tracer_Reg)
+    elseif (lowercase(trim(config)) == "supercritical") then
+      call supercritical_set_OBC_data(OBC, G, PF)
+    elseif (trim(config) == "tidal_bay") then
+      OBC%update_OBC = .true.
+    elseif (trim(config) == "Kelvin") then
+      OBC%update_OBC = .true.
+    elseif (trim(config) == "USER") then
+      call user_set_OBC_data(OBC, tv, G, PF, tracer_Reg)
+    elseif (.not. trim(config) == "none") then
+      call MOM_error(FATAL, "The open boundary conditions specified by "//&
+              "OBC_USER_CONFIG = "//trim(config)//" have not been fully implemented.")
     endif
     if (open_boundary_query(OBC, apply_open_OBC=.true.)) then
       call set_Flather_data(OBC, tv, h, G, PF, tracer_Reg)
@@ -1560,13 +1561,15 @@ subroutine compute_global_grid_integrals(G)
   type(ocean_grid_type), intent(inout) :: G
   ! Subroutine to pre-compute global integrals of grid quantities for
   ! later use in reporting diagnostics
+  real, dimension(G%isc:G%iec, G%jsc:G%jec) :: tmpForSumming
   integer :: i,j
 
+  tmpForSumming(:,:) = 0.
   G%areaT_global = 0.0 ; G%IareaT_global = 0.0
   do j=G%jsc,G%jec ; do i=G%isc,G%iec
-    G%areaT_global = G%areaT_global + ( G%areaT(i,j) * G%mask2dT(i,j) )
+    tmpForSumming(i,j) = G%areaT(i,j) * G%mask2dT(i,j)
   enddo ; enddo
-  call sum_across_PEs( G%areaT_global )
+  G%areaT_global = reproducing_sum(tmpForSumming)
   G%IareaT_global = 1. / G%areaT_global
 end subroutine compute_global_grid_integrals
 
