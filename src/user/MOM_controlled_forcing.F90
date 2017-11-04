@@ -1,24 +1,7 @@
 module MOM_controlled_forcing
-!***********************************************************************
-!*                   GNU General Public License                        *
-!* This file is a part of MOM.                                         *
-!*                                                                     *
-!* MOM is free software; you can redistribute it and/or modify it and  *
-!* are expected to follow the terms of the GNU General Public License  *
-!* as published by the Free Software Foundation; either version 2 of   *
-!* the License, or (at your option) any later version.                 *
-!*                                                                     *
-!* MOM is distributed in the hope that it will be useful, but WITHOUT  *
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY  *
-!* or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public    *
-!* License for more details.                                           *
-!*                                                                     *
-!* For the full text of the GNU General Public License,                *
-!* write to: Free Software Foundation, Inc.,                           *
-!*           675 Mass Ave, Cambridge, MA 02139, USA.                   *
-!* or see:   http://www.gnu.org/licenses/gpl.html                      *
-!***********************************************************************
-!
+
+! This file is part of MOM6. See LICENSE.md for the license.
+
 use MOM_diag_mediator, only : post_data, query_averaging_enabled
 use MOM_diag_mediator, only : register_diag_field, diag_ctrl, safe_alloc_ptr
 use MOM_domains, only : pass_var, pass_vector, AGRID, To_South, To_West, To_All
@@ -505,7 +488,7 @@ subroutine controlled_forcing_init(Time, G, param_file, diag, CS)
   integer :: num_cycle
 ! This include declares and sets the variable "version".
 #include "version_variable.h"
-  character(len=40)  :: mod = "MOM_controlled_forcing" ! This module's name.
+  character(len=40)  :: mdl = "MOM_controlled_forcing" ! This module's name.
 
   ! These should have already been called.
   ! call read_param(param_file, "CTRL_FORCE_INTEGRATED", CS%do_integrated)
@@ -518,12 +501,12 @@ subroutine controlled_forcing_init(Time, G, param_file, diag, CS)
   endif
 
   ! Read all relevant parameters and write them to the model log.
-  call log_version(param_file, mod, version, "")
-  call log_param(param_file, mod, "CTRL_FORCE_INTEGRATED", do_integrated, &
+  call log_version(param_file, mdl, version, "")
+  call log_param(param_file, mdl, "CTRL_FORCE_INTEGRATED", do_integrated, &
                  "If true, use a PI controller to determine the surface \n"//&
                  "forcing that is consistent with the observed mean properties.", &
                  default=.false.)
-  call log_param(param_file, mod, "CTRL_FORCE_NUM_CYCLE", num_cycle, &
+  call log_param(param_file, mdl, "CTRL_FORCE_NUM_CYCLE", num_cycle, &
                  "The number of cycles per year in the controlled forcing, \n"//&
                  "or 0 for no cyclic forcing.", default=0)
 
@@ -531,32 +514,32 @@ subroutine controlled_forcing_init(Time, G, param_file, diag, CS)
 
   CS%diag => diag
 
-  call get_param(param_file, mod, "CTRL_FORCE_HEAT_INT_RATE", CS%heat_int_rate, &
+  call get_param(param_file, mdl, "CTRL_FORCE_HEAT_INT_RATE", CS%heat_int_rate, &
                  "The integrated rate at which heat flux anomalies are \n"//&
                  "accumulated.", units="s-1", default=0.0)
-  call get_param(param_file, mod, "CTRL_FORCE_PREC_INT_RATE", CS%prec_int_rate, &
+  call get_param(param_file, mdl, "CTRL_FORCE_PREC_INT_RATE", CS%prec_int_rate, &
                  "The integrated rate at which precipitation anomalies \n"//&
                  "are accumulated.", units="s-1", default=0.0)
-  call get_param(param_file, mod, "CTRL_FORCE_HEAT_CYC_RATE", CS%heat_cyc_rate, &
+  call get_param(param_file, mdl, "CTRL_FORCE_HEAT_CYC_RATE", CS%heat_cyc_rate, &
                  "The integrated rate at which cyclical heat flux \n"//&
                  "anomalies are accumulated.", units="s-1", default=0.0)
-  call get_param(param_file, mod, "CTRL_FORCE_PREC_CYC_RATE", CS%prec_cyc_rate, &
+  call get_param(param_file, mdl, "CTRL_FORCE_PREC_CYC_RATE", CS%prec_cyc_rate, &
                  "The integrated rate at which cyclical precipitation \n"//&
                  "anomalies are accumulated.", units="s-1", default=0.0)
-  call get_param(param_file, mod, "CTRL_FORCE_SMOOTH_LENGTH", smooth_len, &
+  call get_param(param_file, mdl, "CTRL_FORCE_SMOOTH_LENGTH", smooth_len, &
                  "The length scales over which controlled forcing \n"//&
                  "anomalies are smoothed.", units="m", default=0.0)
-  call get_param(param_file, mod, "CTRL_FORCE_LAMDA_HEAT", CS%lam_heat, &
+  call get_param(param_file, mdl, "CTRL_FORCE_LAMDA_HEAT", CS%lam_heat, &
                  "A constant of proportionality between SST anomalies \n"//&
                  "and controlling heat fluxes", "W m-2 K-1", default=0.0)
-  call get_param(param_file, mod, "CTRL_FORCE_LAMDA_PREC", CS%lam_prec, &
+  call get_param(param_file, mdl, "CTRL_FORCE_LAMDA_PREC", CS%lam_prec, &
                  "A constant of proportionality between SSS anomalies \n"//&
                  "(normalised by mean SSS) and controlling precipitation.", &
                  "kg m-2", default=0.0)
-  call get_param(param_file, mod, "CTRL_FORCE_LAMDA_CYC_HEAT", CS%lam_cyc_heat, &
+  call get_param(param_file, mdl, "CTRL_FORCE_LAMDA_CYC_HEAT", CS%lam_cyc_heat, &
                  "A constant of proportionality between SST anomalies \n"//&
                  "and cyclical controlling heat fluxes", "W m-2 K-1", default=0.0)
-  call get_param(param_file, mod, "CTRL_FORCE_LAMDA_CYC_PREC", CS%lam_cyc_prec, &
+  call get_param(param_file, mdl, "CTRL_FORCE_LAMDA_CYC_PREC", CS%lam_cyc_prec, &
                  "A constant of proportionality between SSS anomalies \n"//&
                  "(normalised by mean SSS) and cyclical controlling \n"//&
                  "precipitation.", "kg m-2", default=0.0)

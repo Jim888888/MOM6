@@ -1,24 +1,6 @@
 module MOM_dynamics_legacy_split
 
-!***********************************************************************
-!*                   GNU General Public License                        *
-!* This file is a part of MOM.                                         *
-!*                                                                     *
-!* MOM is free software; you can redistribute it and/or modify it and  *
-!* are expected to follow the terms of the GNU General Public License  *
-!* as published by the Free Software Foundation; either version 2 of   *
-!* the License, or (at your option) any later version.                 *
-!*                                                                     *
-!* MOM is distributed in the hope that it will be useful, but WITHOUT  *
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY  *
-!* or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public    *
-!* License for more details.                                           *
-!*                                                                     *
-!* For the full text of the GNU General Public License,                *
-!* write to: Free Software Foundation, Inc.,                           *
-!*           675 Mass Ave, Cambridge, MA 02139, USA.                   *
-!* or see:   http://www.gnu.org/licenses/gpl.html                      *
-!***********************************************************************
+! This file is part of MOM6. See LICENSE.md for the license.
 
 !********+*********+*********+*********+*********+*********+*********+**
 !*                                                                     *
@@ -111,12 +93,13 @@ use MOM_lateral_mixing_coeffs, only : VarMix_CS
 use MOM_MEKE_types, only : MEKE_type
 use MOM_open_boundary, only : ocean_OBC_type
 use MOM_open_boundary, only : radiation_open_bdry_conds
-use MOM_boundary_update, only : update_OBC_data
+use MOM_open_boundary, only : open_boundary_zero_normal_flow
+use MOM_boundary_update, only : update_OBC_data, update_OBC_CS
 use MOM_PressureForce, only : PressureForce, PressureForce_init, PressureForce_CS
 use MOM_tidal_forcing, only : tidal_forcing_init, tidal_forcing_CS
 use MOM_vert_friction, only : vertvisc, vertvisc_coef, vertvisc_remnant
 use MOM_vert_friction, only : vertvisc_limit_vel, vertvisc_init, vertvisc_CS
-use MOM_set_visc, only : set_viscous_BBL, set_viscous_ML, set_visc_CS
+use MOM_set_visc, only : set_viscous_ML, set_visc_CS
 use MOM_verticalGrid, only : verticalGrid_type, get_thickness_units
 use MOM_verticalGrid, only : get_flux_units, get_tr_flux_units
 
@@ -245,6 +228,7 @@ type, public :: MOM_dyn_legacy_split_CS ; private
      ! condition type that specifies whether, where, and  what open boundary
      ! conditions are used.  If no open BCs are used, this pointer stays
      ! nullified.  Flather OBCs use open boundary_CS as well.
+  type(update_OBC_CS),    pointer :: update_OBC_CSp => NULL()
   type(tidal_forcing_CS), pointer :: tides_CSp => NULL()
 
 ! This is a copy of the pointer in the top-level control structure.
@@ -270,27 +254,60 @@ subroutine step_MOM_dyn_legacy_split(u, v, h, tv, visc, &
                  Time_local, dt, fluxes, p_surf_begin, p_surf_end, &
                  dt_since_flux, dt_therm, uh, vh, uhtr, vhtr, eta_av, &
                  G, GV, CS, calc_dtbt, VarMix, MEKE)
-  type(ocean_grid_type),                     intent(inout) :: G
-  type(verticalGrid_type),                   intent(in)    :: GV
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), target, intent(inout) :: u
-  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), target, intent(inout) :: v
-  real, dimension(SZI_(G),SZJ_(G),SZK_(G)),  intent(inout) :: h
-  type(thermo_var_ptrs),                     intent(in)    :: tv
-  type(vertvisc_type),                       intent(inout) :: visc
-  type(time_type),                           intent(in)    :: Time_local
-  real,                                      intent(in)    :: dt
-  type(forcing),                             intent(in)    :: fluxes
-  real, dimension(:,:),                      pointer       :: p_surf_begin, p_surf_end
-  real,                                      intent(in)    :: dt_since_flux, dt_therm
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), target, intent(inout) :: uh
-  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), target, intent(inout) :: vh
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), intent(inout) :: uhtr
-  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), intent(inout) :: vhtr
-  real, dimension(SZI_(G),SZJ_(G)),          intent(out)   :: eta_av
-  type(MOM_dyn_legacy_split_CS),             pointer       :: CS
-  logical,                                   intent(in)    :: calc_dtbt
-  type(VarMix_CS),                           pointer       :: VarMix
-  type(MEKE_type),                           pointer       :: MEKE
+  type(ocean_grid_type),      intent(inout) :: G    !< The ocean's grid structure.
+  type(verticalGrid_type),    intent(in)    :: GV   !< The ocean's vertical grid structure.
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), &
+                      target, intent(inout) :: u    !< The zonal velocity, in m s-1.
+  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), &
+                      target, intent(inout) :: v    !< The meridional velocity, in m s-1.
+  real, dimension(SZI_(G),SZJ_(G),SZK_(G)),  &
+                              intent(inout) :: h   !< Layer thicknesses, in H (usually m or kg m-2).
+  type(thermo_var_ptrs),      intent(in)    :: tv   !< A structure pointing to various.
+                                                    !! thermodynamic variables.
+  type(vertvisc_type),        intent(inout) :: visc !< A structure containing vertical viscosities,
+                                                    !! bottom drag viscosities, and related fields.
+  type(time_type),            intent(in)    :: Time_local !< The model time at the end
+                                                          !! of the time step.
+  real,                       intent(in)    :: dt   !< The baroclinic dynamics time step, in s
+  type(forcing),              intent(in)    :: fluxes !< A structure containing pointers to any
+                                                      !! possible forcing fields.  Unused fields
+                                                      !! have NULL ptrs.
+  real, dimension(:,:),       pointer       :: p_surf_begin !< A pointer (perhaps NULL) to the
+                                                            !! surface pressure at the beginning
+                                                            !! of this dynamic step, in Pa.
+  real, dimension(:,:),       pointer       :: p_surf_end !< A pointer (perhaps NULL) to the
+                                                          !! surface pressure at the end of
+                                                          !! this dynamic step, in Pa.
+  real,                       intent(in)    :: dt_since_flux !< The elapsed time since fluxes
+                                                             !! were applied, in s.
+  real,                       intent(in)    :: dt_therm !< The thermodynamic time step, in s.
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), &
+                      target, intent(inout) :: uh !< The zonal volume or mass transport,
+                                                  !! in m3 s-1 or kg s-1.
+  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), &
+                      target, intent(inout) :: vh !< The meridional volume or mass transport,
+                                                  !! in m3 s-1 or kg s-1.
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), &
+                              intent(inout) :: uhtr !< The accumulated zonal volume or mass
+                                                    !! transport since the last tracer advection,
+                                                    !! in m3 or kg.
+  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), &
+                              intent(inout) :: vhtr !< The accumulated meridional volume or mass
+                                                    !! transport since the last tracer advection,
+                                                    !! in m3 or kg.
+  real, dimension(SZI_(G),SZJ_(G)),          &
+                              intent(out)   :: eta_av !< The free surface height or column mass
+                                                      !! time-averaged over a time step,
+                                                      !! in m or kg m-2.
+  type(MOM_dyn_legacy_split_CS),             &
+                              pointer       :: CS !< The control structure set up by
+                                                  !! initialize_dyn_legacy_split.
+  logical,                    intent(in)    :: calc_dtbt !< If true, recalculate the
+                                                         !! barotropic time step.
+  type(VarMix_CS),            pointer       :: VarMix !<A pointer to a structure with fields that
+                                                      !! specify the spatially variable viscosities.
+  type(MEKE_type),            pointer       :: MEKE   !< A pointer to a structure containing fields
+                                                    !! related to the Mesoscale Eddy Kinetic Energy.
 ! Arguments: u - The zonal velocity, in m s-1.
 !  (inout)   v - The meridional velocity, in m s-1.
 !  (inout)   h - The layer thicknesses, in m or kg m-2, depending on
@@ -381,7 +398,7 @@ subroutine step_MOM_dyn_legacy_split(u, v, h, tv, visc, &
   logical :: BT_cont_BT_thick ! If true, use the BT_cont_type to estimate the
                               ! relative weightings of the layers in calculating
                               ! the barotropic accelerations.
-  integer :: pid_Ray, pid_bbl_h, pid_kv_bbl, pid_eta_PF, pid_eta, pid_visc
+  integer :: pid_bbl_h, pid_eta_PF, pid_eta, pid_visc
   integer :: pid_h, pid_u, pid_u_av, pid_uh, pid_uhbt_in
   integer :: i, j, k, is, ie, js, je, Isq, Ieq, Jsq, Jeq, nz
   is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec ; nz = G%ke
@@ -427,42 +444,6 @@ subroutine step_MOM_dyn_legacy_split(u, v, h, tv, visc, &
     taux_bot => CS%taux_bot ; tauy_bot => CS%tauy_bot
   endif
 
-  if (visc%calc_bbl) then
-    ! Calculate the BBL properties and store them inside visc (u,h).
-    call cpu_clock_begin(id_clock_vertvisc)
-    call enable_averaging(visc%bbl_calc_time_interval, &
-              Time_local+set_time(int(visc%bbl_calc_time_interval-dt)), CS%diag)
-    call set_viscous_BBL(u, v, h, tv, visc, G, GV, CS%set_visc_CSp)
-    call disable_averaging(CS%diag)
-    call cpu_clock_end(id_clock_vertvisc)
-
-    call cpu_clock_begin(id_clock_pass)
-    if (G%nonblocking_updates) then
-      if (associated(visc%Ray_u) .and. associated(visc%Ray_v)) &
-        pid_Ray = pass_vector_start(visc%Ray_u, visc%Ray_v, G%Domain, &
-                       To_All+SCALAR_PAIR, CGRID_NE)
-      if (associated(visc%bbl_thick_u) .and. associated(visc%bbl_thick_v)) &
-        pid_bbl_h = pass_vector_start(visc%bbl_thick_u, visc%bbl_thick_v, &
-                       G%Domain, To_All+SCALAR_PAIR, CGRID_NE)
-      if (associated(visc%kv_bbl_u) .and. associated(visc%kv_bbl_v)) &
-        pid_kv_bbl = pass_vector_start(visc%kv_bbl_u, visc%kv_bbl_v, &
-                       G%Domain, To_All+SCALAR_PAIR, CGRID_NE)
-      ! visc%calc_bbl will be set to .false. when the message passing is complete.
-    else
-      if (associated(visc%Ray_u) .and. associated(visc%Ray_v)) &
-        call pass_vector(visc%Ray_u, visc%Ray_v, G%Domain, &
-                       To_All+SCALAR_PAIR, CGRID_NE)
-      if (associated(visc%kv_bbl_u) .and. associated(visc%kv_bbl_v)) then
-        call pass_vector(visc%bbl_thick_u, visc%bbl_thick_v, G%Domain, &
-                       To_All+SCALAR_PAIR, CGRID_NE, complete=.false.)
-        call pass_vector(visc%kv_bbl_u, visc%kv_bbl_v, G%Domain, &
-                       To_All+SCALAR_PAIR, CGRID_NE)
-      endif
-      visc%calc_bbl = .false.
-    endif
-    call cpu_clock_end(id_clock_pass)
-  endif
-
 ! PFu = d/dx M(h,T,S)
 ! pbce = dM/deta
   if (CS%begw == 0.0) call enable_averaging(dt, Time_local, CS%diag)
@@ -493,7 +474,7 @@ subroutine step_MOM_dyn_legacy_split(u, v, h, tv, visc, &
   endif
 
   if (associated(CS%OBC)) then; if (CS%OBC%update_OBC) then
-    call update_OBC_data(CS%OBC, G, GV, tv, h, Time_local)
+    call update_OBC_data(CS%OBC, G, GV, tv, h, CS%update_OBC_CSp, Time_local)
   endif; endif
 
 ! CAu = -(f+zeta_av)/h_av vh + d/dx KE_av
@@ -510,6 +491,9 @@ subroutine step_MOM_dyn_legacy_split(u, v, h, tv, visc, &
   do k=1,nz ; do J=Jsq,Jeq ; do i=is,ie
     v_bc_accel(i,J,k) = (CS%Cav(i,J,k) + CS%PFv(i,J,k)) + CS%diffv(i,J,k)
   enddo ; enddo ; enddo
+  if (associated(CS%OBC)) then
+    call open_boundary_zero_normal_flow(CS%OBC, G, u_bc_accel, v_bc_accel)
+  endif
   call cpu_clock_end(id_clock_btforce)
 
   if (CS%debug) then
@@ -521,20 +505,6 @@ subroutine step_MOM_dyn_legacy_split(u, v, h, tv, visc, &
 
   if (G%nonblocking_updates) then
     call cpu_clock_begin(id_clock_pass)
-    if (visc%calc_bbl) then
-      if (associated(visc%Ray_u) .and. associated(visc%Ray_v)) &
-        call pass_vector_complete(pid_Ray, visc%Ray_u, visc%Ray_v, G%Domain, &
-                         To_All+SCALAR_PAIR, CGRID_NE)
-      if (associated(visc%bbl_thick_u) .and. associated(visc%bbl_thick_v)) &
-        call pass_vector_complete(pid_bbl_h, visc%bbl_thick_u, visc%bbl_thick_v, &
-                       G%Domain, To_All+SCALAR_PAIR, CGRID_NE)
-      if (associated(visc%kv_bbl_u) .and. associated(visc%kv_bbl_v)) &
-        call pass_vector_complete(pid_kv_bbl, visc%kv_bbl_u, visc%kv_bbl_v, &
-                       G%Domain, To_All+SCALAR_PAIR, CGRID_NE)
-
-      ! visc%calc_bbl is set to .false. now that the message passing is completed.
-      visc%calc_bbl = .false.
-    endif
     call pass_var_complete(pid_eta_PF, CS%eta_PF, G%Domain)
     call pass_var_complete(pid_eta, eta, G%Domain)
     if (CS%readjust_velocity) &
@@ -681,9 +651,9 @@ subroutine step_MOM_dyn_legacy_split(u, v, h, tv, visc, &
 
   if (CS%debug) then
     call uvchksum("Predictor 1 [uv]", up, vp, G%HI,haloshift=0)
-    call hchksum(GV%H_to_kg_m2*h,"Predictor 1 h",G%HI,haloshift=1)
-    call uvchksum("Predictor 1 [uv]h", GV%H_to_kg_m2*uh, GV%H_to_kg_m2*vh, &
-                  G%HI,haloshift=2)
+    call hchksum(h, "Predictor 1 h", G%HI, haloshift=1, scale=GV%H_to_m)
+    call uvchksum("Predictor 1 [uv]h", uh, vh, &
+                  G%HI, haloshift=2, scale=GV%H_to_m)
 !   call MOM_state_chksum("Predictor 1", up, vp, h, uh, vh, G, GV, haloshift=1)
     call MOM_accel_chksum("Predictor accel", CS%CAu, CS%CAv, CS%PFu, CS%PFv, &
              CS%diffu, CS%diffv, G, GV, CS%pbce, CS%u_accel_bt, CS%v_accel_bt)
@@ -785,7 +755,7 @@ subroutine step_MOM_dyn_legacy_split(u, v, h, tv, visc, &
   endif
 
   if (associated(CS%OBC)) then; if (CS%OBC%update_OBC) then
-    call update_OBC_data(CS%OBC, G, GV, tv, h, Time_local)
+    call update_OBC_data(CS%OBC, G, GV, tv, h, CS%update_OBC_CSp, Time_local)
   endif; endif
 
   if (BT_cont_BT_thick) then
@@ -799,7 +769,7 @@ subroutine step_MOM_dyn_legacy_split(u, v, h, tv, visc, &
   if (CS%debug) then
     call MOM_state_chksum("Predictor ", up, vp, hp, uh, vh, G, GV)
     call uvchksum("Predictor avg [uv]", u_av, v_av, G%HI, haloshift=1)
-    call hchksum(GV%H_to_kg_m2*h_av,"Predictor avg h",G%HI,haloshift=0)
+    call hchksum(h_av,"Predictor avg h",G%HI,haloshift=0, scale=GV%H_to_m)
   ! call MOM_state_chksum("Predictor avg ", u_av, v_av,  h_av,uh, vh, G, GV)
     call check_redundant("Predictor up ", up, vp, G)
     call check_redundant("Predictor uh ", uh, vh, G)
@@ -827,6 +797,9 @@ subroutine step_MOM_dyn_legacy_split(u, v, h, tv, visc, &
   do k=1,nz ; do J=Jsq,Jeq ; do i=is,ie
     v_bc_accel(i,J,k) = (CS%Cav(i,J,k) + CS%PFv(i,J,k)) + CS%diffv(i,J,k)
   enddo ; enddo ; enddo
+  if (associated(CS%OBC)) then
+    call open_boundary_zero_normal_flow(CS%OBC, G, u_bc_accel, v_bc_accel)
+  endif
   call cpu_clock_end(id_clock_btforce)
 
   if (CS%debug) then
@@ -882,9 +855,9 @@ subroutine step_MOM_dyn_legacy_split(u, v, h, tv, visc, &
 
   if (CS%debug) then
     call uvchksum("Corrector 1 [uv]", u, v, G%HI, haloshift=0)
-    call hchksum(GV%H_to_kg_m2*h,"Corrector 1 h",G%HI,haloshift=2)
+    call hchksum(h,"Corrector 1 h",G%HI,haloshift=2, scale=GV%H_to_m)
     call uvchksum("Corrector 1 [uv]h", &
-                  GV%H_to_kg_m2*uh, GV%H_to_kg_m2*vh, G%HI, haloshift=2)
+                  uh, vh, G%HI, haloshift=2, scale=GV%H_to_m)
   ! call MOM_state_chksum("Corrector 1", u, v, h, uh, vh, G, GV, haloshift=1)
     call MOM_accel_chksum("Corrector accel", CS%CAu, CS%CAv, CS%PFu, CS%PFv, &
              CS%diffu, CS%diffv, G, GV, CS%pbce, CS%u_accel_bt, CS%v_accel_bt)
@@ -1041,7 +1014,7 @@ subroutine step_MOM_dyn_legacy_split(u, v, h, tv, visc, &
   if (CS%debug) then
     call MOM_state_chksum("Corrector ", u, v, h, uh, vh, G, GV)
     call uvchksum("Corrector avg [uv]", u_av, v_av, G%HI, haloshift=1)
-    call hchksum(GV%H_to_kg_m2*h_av,"Corrector avg h",G%HI,haloshift=1)
+    call hchksum(h_av,"Corrector avg h",G%HI,haloshift=1, scale=GV%H_to_m)
  !  call MOM_state_chksum("Corrector avg ", u_av, v_av, h_av, uh, vh, G, GV)
   endif
 
@@ -1050,13 +1023,18 @@ end subroutine step_MOM_dyn_legacy_split
 ! =============================================================================
 
 subroutine adjustments_dyn_legacy_split(u, v, h, dt, G, GV, CS)
-  type(ocean_grid_type),                     intent(inout) :: G
-  type(verticalGrid_type),                   intent(in)    :: GV
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), intent(inout) :: u
-  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), intent(inout) :: v
-  real, dimension(SZI_(G),SZJ_(G),SZK_(G)),  intent(in)    :: h
-  real,                                      intent(in)    :: dt
-  type(MOM_dyn_legacy_split_CS),             pointer       :: CS
+  type(ocean_grid_type),          intent(inout) :: G    !< The ocean's grid structure.
+  type(verticalGrid_type),        intent(in)    :: GV   !< The ocean's vertical grid structure.
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), &
+                                  intent(inout) :: u    !< The zonal velocity, in m s-1.
+  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), &
+                                  intent(inout) :: v    !< The meridional velocity, in m s-1.
+  real, dimension(SZI_(G),SZJ_(G),SZK_(G)),  &
+                                  intent(inout) :: h    !< Layer thicknesses, in H
+                                                        !! (usually m or kg m-2).
+  real,                           intent(in)    :: dt   !< The baroclinic dynamics time step, in s.
+  type(MOM_dyn_legacy_split_CS),  pointer       :: CS   !< The control structure set up by
+                                                        !! initialize_dyn_legacy_split.
 
 ! Arguments: u - The zonal velocity, in m s-1.
 !  (in)      v - The meridional velocity, in m s-1.
@@ -1104,13 +1082,20 @@ end subroutine adjustments_dyn_legacy_split
 ! =============================================================================
 
 subroutine register_restarts_dyn_legacy_split(HI, GV, param_file, CS, restart_CS, uh, vh)
-  type(hor_index_type),          intent(in)    :: HI
-  type(verticalGrid_type),       intent(in)    :: GV
-  type(param_file_type),         intent(in)    :: param_file
-  type(MOM_dyn_legacy_split_CS), pointer       :: CS
-  type(MOM_restart_CS),          pointer       :: restart_CS
-  real, dimension(SZIB_(HI),SZJ_(HI),SZK_(GV)), target, intent(inout) :: uh
-  real, dimension(SZI_(HI),SZJB_(HI),SZK_(GV)), target, intent(inout) :: vh
+  type(hor_index_type),          intent(in)   :: HI         !< A horizontal index type structure.
+  type(verticalGrid_type),       intent(in)   :: GV         !< The ocean's vertical grid structure.
+  type(param_file_type),         intent(in)   :: param_file !< A structure to parse for run-time
+                                                            !! parameters.
+  type(MOM_dyn_legacy_split_CS), pointer      :: CS         !< The control structure set up by
+                                                            !! initialize_dyn_legacy_split.
+  type(MOM_restart_CS),          pointer      :: restart_CS !< A pointer to the restart
+                                                            !! control structure.
+  real, dimension(SZIB_(HI),SZJ_(HI),SZK_(GV)), &
+                        target, intent(inout) :: uh         !< The zonal volume or mass transport,
+                                                            !! in m3 s-1 or kg s-1.
+  real, dimension(SZI_(HI),SZJB_(HI),SZK_(GV)), &
+                        target, intent(inout) :: vh         !< The meridional volume or mass
+                                                            !! transport, in m3 s-1 or kg s-1.
 !   This subroutine sets up any auxiliary restart variables that are specific
 ! to the unsplit time stepping scheme.  All variables registered here should
 ! have the ability to be recreated if they are not present in a restart file.
@@ -1125,7 +1110,7 @@ subroutine register_restarts_dyn_legacy_split(HI, GV, param_file, CS, restart_CS
 !  (inout)   vh - The meridional volume or mass transport, in m3 s-1 or kg s-1.
 
   type(vardesc) :: vd
-  character(len=40)  :: mod = "MOM_dynamics_legacy_split" ! This module's name.
+  character(len=40)  :: mdl = "MOM_dynamics_legacy_split" ! This module's name.
   character(len=48) :: thickness_units, flux_units
   logical :: adiabatic, flux_BT_coupling, readjust_BT_trans
   integer :: isd, ied, jsd, jed, nz, IsdB, IedB, JsdB, JedB
@@ -1206,32 +1191,66 @@ end subroutine register_restarts_dyn_legacy_split
 
 subroutine initialize_dyn_legacy_split(u, v, h, uh, vh, eta, Time, G, GV, param_file, &
                       diag, CS, restart_CS, dt, Accel_diag, Cont_diag, MIS, &
-                      VarMix, MEKE, OBC, ALE_CSp, setVisc_CSp, visc, dirs, ntrunc)
-  type(ocean_grid_type),                     intent(inout) :: G
-  type(verticalGrid_type),                   intent(in)    :: GV
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), intent(inout) :: u
-  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), intent(inout) :: v
-  real, dimension(SZI_(G),SZJ_(G),SZK_(G)) , intent(inout) :: h
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), target, intent(inout) :: uh
-  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), target, intent(inout) :: vh
-  real, dimension(SZI_(G),SZJ_(G)),          intent(inout) :: eta
-  type(time_type),                   target, intent(in)    :: Time
-  type(param_file_type),                     intent(in)    :: param_file
-  type(diag_ctrl),                   target, intent(inout) :: diag
-  type(MOM_dyn_legacy_split_CS),             pointer       :: CS
-  type(MOM_restart_CS),                      pointer       :: restart_CS
-  real,                                      intent(in)    :: dt
-  type(accel_diag_ptrs),             target, intent(inout) :: Accel_diag
-  type(cont_diag_ptrs),              target, intent(inout) :: Cont_diag
-  type(ocean_internal_state),                intent(inout) :: MIS
-  type(VarMix_CS),                           pointer       :: VarMix
-  type(MEKE_type),                           pointer       :: MEKE
-  type(ocean_OBC_type),                      pointer       :: OBC
-  type(ALE_CS),                              pointer       :: ALE_CSp
-  type(set_visc_CS),                         pointer       :: setVisc_CSp
-  type(vertvisc_type),                       intent(inout) :: visc
-  type(directories),                         intent(in)    :: dirs
-  integer, target,                           intent(inout) :: ntrunc
+                      VarMix, MEKE, OBC, update_OBC_CSp, ALE_CSp, setVisc_CSp, visc, &
+                      dirs, ntrunc)
+  type(ocean_grid_type),         intent(inout) :: G    !< The ocean's grid structure.
+  type(verticalGrid_type),       intent(in)    :: GV   !< The ocean's vertical grid structure.
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), &
+                                 intent(inout) :: u    !< The zonal velocity, in m s-1.
+  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), &
+                                 intent(inout) :: v    !< The meridional velocity, in m s-1.
+  real, dimension(SZI_(G),SZJ_(G),SZK_(G)) , &
+                                 intent(inout) :: h    !< Layer thicknesses, in H
+                                                       !! (usually m or kg m-2).
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), &
+                         target, intent(inout) :: uh   !< The zonal volume or mass transport,
+                                                       !! in m3 s-1 or kg s-1.
+  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), &
+                         target, intent(inout) :: vh   !< The meridional volume or mass transport,
+                                                       !! in m3 s-1 or kg s-1.
+  real, dimension(SZI_(G),SZJ_(G)),          &
+                                 intent(inout) :: eta  !< The free surface height or column mass,
+                                                       !! in m or kg m-2.
+  type(time_type),       target, intent(in)    :: Time        !< The current model time.
+  type(param_file_type),         intent(in)    :: param_file  !< A structure to parse for run-time
+                                                              !! parameters.
+  type(diag_ctrl),       target, intent(inout) :: diag        !< A structure that is used to
+                                                              !! regulate diagnostic output.
+  type(MOM_dyn_legacy_split_CS), pointer       :: CS          !< The control structure set up by
+                                                              !! initialize_dyn_legacy_split.
+  type(MOM_restart_CS),          pointer       :: restart_CS  !< A pointer to the restart control
+                                                              !! structure.
+  real,                          intent(in)    :: dt          !< The baroclinic dynamics time step,
+                                                              !! in s.
+  type(accel_diag_ptrs), target, intent(inout) :: Accel_diag  !<A set of pointers to the various
+                                        !! accelerations in the momentum equations, which can be
+                                        !! used for later derived diagnostics, like energy budgets.
+  type(cont_diag_ptrs),  target, intent(inout) :: Cont_diag  !< A structure with pointers to various
+                                                              !! terms in the continuity equations.
+  type(ocean_internal_state),    intent(inout) :: MIS         !< The "MOM6 Internal State"
+                                              !! structure, used to pass around pointers to
+                                              !! various arrays for diagnostic purposes.
+  type(VarMix_CS),               pointer       :: VarMix      !< A pointer to a structure with
+                                     !! fields that specify the spatially variable viscosities.
+  type(MEKE_type),               pointer       :: MEKE        !< A pointer to a structure containing
+                                              !! fields related to the Mesoscale Eddy Kinetic Energy.
+  type(ocean_OBC_type),          pointer       :: OBC         !< If open boundary conditions are
+                                                          !! used, this points to the ocean_OBC_type
+                                                          !! that was set up in MOM_initialization.
+  type(update_OBC_CS),           pointer       :: update_OBC_CSp !< If open boundary condition
+                                                              !! updates are used, this points to
+                                                              !! the appropriate control structure.
+  type(ALE_CS),                  pointer       :: ALE_CSp     !< This points to the ALE control
+                                                              !! structure.
+  type(set_visc_CS),             pointer       :: setVisc_CSp !< This points to the set_visc control
+                                                              !! structure.
+  type(vertvisc_type),           intent(inout) :: visc        !< A structure containing vertical
+                                         !! viscosities, bottom drag viscosities, and related fields.
+  type(directories),             intent(in)    :: dirs        !< A structure containing several
+                                                              !! relevant directory paths.
+  integer, target,               intent(inout) :: ntrunc      !< A target for the variable that
+                        !! records the number of times the velocity is truncated (this should be 0).
+
 ! Arguments: u - The zonal velocity, in m s-1.
 !  (inout)   v - The meridional velocity, in m s-1.
 !  (inout)   h - The layer thicknesses, in m or kg m-2, depending on whether
@@ -1259,6 +1278,8 @@ subroutine initialize_dyn_legacy_split(u, v, h, uh, vh, eta, Time, G, GV, param_
 !                   the Mesoscale Eddy Kinetic Energy.
 !  (in)      OBC - If open boundary conditions are used, this points to the
 !                  ocean_OBC_type that was set up in MOM_initialization.
+!  (in)      update_OBC_CSp - If open boundary condition updates are used,
+!                  this points to the appropriate control structure.
 !  (in)      ALE_CS - This points to the ALE control structure.
 !  (in)      setVisc_CSp - This points to the set_visc control structure.
 !  (inout)   visc - A structure containing vertical viscosities, bottom drag
@@ -1273,7 +1294,7 @@ subroutine initialize_dyn_legacy_split(u, v, h, uh, vh, eta, Time, G, GV, param_
   !   This subroutine initializes any variables that are specific to this time
   ! stepping scheme, including the cpu clocks.
   real, dimension(SZI_(G),SZJ_(G),SZK_(G)) :: h_tmp
-  character(len=40)  :: mod = "MOM_dynamics_legacy_split" ! This module's name.
+  character(len=40)  :: mdl = "MOM_dynamics_legacy_split" ! This module's name.
   character(len=48) :: thickness_units, flux_units
   logical :: adiabatic, use_tides, debug_truncations
   integer :: i, j, k, is, ie, js, je, isd, ied, jsd, jed, nz
@@ -1293,9 +1314,9 @@ subroutine initialize_dyn_legacy_split(u, v, h, uh, vh, eta, Time, G, GV, param_
 
   CS%diag => diag
 
-  call get_param(param_file, mod, "TIDES", use_tides, &
+  call get_param(param_file, mdl, "TIDES", use_tides, &
                  "If true, apply tidal momentum forcing.", default=.false.)
-  call get_param(param_file, mod, "BE", CS%be, &
+  call get_param(param_file, mdl, "BE", CS%be, &
                  "If SPLIT is true, BE determines the relative weighting \n"//&
                  "of a  2nd-order Runga-Kutta baroclinic time stepping \n"//&
                  "scheme (0.5) and a backward Euler scheme (1) that is \n"//&
@@ -1303,7 +1324,7 @@ subroutine initialize_dyn_legacy_split(u, v, h, uh, vh, eta, Time, G, GV, param_
                  "from 0.5 to 1, but instability may occur near 0.5. \n"//&
                  "BE is also applicable if SPLIT is false and USE_RK2 \n"//&
                  "is true.", units="nondim", default=0.6)
-  call get_param(param_file, mod, "BEGW", CS%begw, &
+  call get_param(param_file, mdl, "BEGW", CS%begw, &
                  "If SPLIT is true, BEGW is a number from 0 to 1 that \n"//&
                  "controls the extent to which the treatment of gravity \n"//&
                  "waves is forward-backward (0) or simulated backward \n"//&
@@ -1312,29 +1333,29 @@ subroutine initialize_dyn_legacy_split(u, v, h, uh, vh, eta, Time, G, GV, param_
                  "between 0 and 0.5 to damp gravity waves.", &
                  units="nondim", default=0.0)
 
-  call get_param(param_file, mod, "FLUX_BT_COUPLING", CS%flux_BT_coupling, &
+  call get_param(param_file, mdl, "FLUX_BT_COUPLING", CS%flux_BT_coupling, &
                  "If true, use mass fluxes to ensure consistency between \n"//&
                  "the baroclinic and barotropic modes. This is only used \n"//&
                  "if SPLIT is true.", default=.false.)
-  call get_param(param_file, mod, "READJUST_BT_TRANS", CS%readjust_BT_trans, &
+  call get_param(param_file, mdl, "READJUST_BT_TRANS", CS%readjust_BT_trans, &
                  "If true, make a barotropic adjustment to the layer \n"//&
                  "velocities after the thermodynamic part of the step \n"//&
                  "to ensure that the interaction between the thermodynamics \n"//&
                  "and the continuity solver do not change the barotropic \n"//&
                  "transport.  This is only used if FLUX_BT_COUPLING and \n"//&
                  "SPLIT are true.", default=.false.)
-  call get_param(param_file, mod, "SPLIT_BOTTOM_STRESS", CS%split_bottom_stress, &
+  call get_param(param_file, mdl, "SPLIT_BOTTOM_STRESS", CS%split_bottom_stress, &
                  "If true, provide the bottom stress calculated by the \n"//&
                  "vertical viscosity to the barotropic solver.", default=.false.)
-  call get_param(param_file, mod, "BT_USE_LAYER_FLUXES", CS%BT_use_layer_fluxes, &
+  call get_param(param_file, mdl, "BT_USE_LAYER_FLUXES", CS%BT_use_layer_fluxes, &
                  "If true, use the summed layered fluxes plus an \n"//&
                  "adjustment due to the change in the barotropic velocity \n"//&
                  "in the barotropic continuity equation.", default=.true.)
-  call get_param(param_file, mod, "DEBUG", CS%debug, &
+  call get_param(param_file, mdl, "DEBUG", CS%debug, &
                  "If true, write out verbose debugging data.", default=.false.)
-  call get_param(param_file, mod, "ADIABATIC", adiabatic, default=.false., do_not_log=.true.)
+  call get_param(param_file, mdl, "ADIABATIC", adiabatic, default=.false., do_not_log=.true.)
   if (.not.CS%flux_BT_coupling .or. adiabatic) CS%readjust_BT_trans = .false.
-  call get_param(param_file, mod, "DEBUG_TRUNCATIONS", debug_truncations, &
+  call get_param(param_file, mdl, "DEBUG_TRUNCATIONS", debug_truncations, &
                  default=.false.)
 
   allocate(CS%taux_bot(IsdB:IedB,jsd:jed)) ; CS%taux_bot(:,:) = 0.0
@@ -1379,6 +1400,7 @@ subroutine initialize_dyn_legacy_split(u, v, h, uh, vh, eta, Time, G, GV, param_
 
   if (associated(ALE_CSp)) CS%ALE_CSp => ALE_CSp
   if (associated(OBC)) CS%OBC => OBC
+  if (associated(update_OBC_CSp)) CS%update_OBC_CSp => update_OBC_CSp
 
   if (.not. query_initialized(CS%eta,"sfc",restart_CS))  then
     ! Estimate eta based on the layer thicknesses - h.  With the Boussinesq

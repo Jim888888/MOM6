@@ -1,23 +1,6 @@
 program MOM_main
-!***********************************************************************
-!*                   GNU General Public License                        *
-!* This file is a part of MOM.                                         *
-!*                                                                     *
-!* MOM is free software; you can redistribute it and/or modify it and  *
-!* are expected to follow the terms of the GNU General Public License  *
-!* as published by the Free Software Foundation; either version 2 of   *
-!* the License, or (at your option) any later version.                 *
-!*                                                                     *
-!* MOM is distributed in the hope that it will be useful, but WITHOUT  *
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY  *
-!* or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public    *
-!* License for more details.                                           *
-!*                                                                     *
-!* For the full text of the GNU General Public License,                *
-!* write to: Free Software Foundation, Inc.,                           *
-!*           675 Mass Ave, Cambridge, MA 02139, USA.                   *
-!* or see:   http://www.gnu.org/licenses/gpl.html                      *
-!***********************************************************************
+
+! This file is part of MOM6. See LICENSE.md for the license.
 
 !********+*********+*********+*********+*********+*********+*********+**
 !*                                                                     *
@@ -74,7 +57,7 @@ program MOM_main
   character(len=4), parameter :: vers_num = 'v2.0'
 ! This include declares and sets the variable "version".
 #include "version_variable.h"
-  character(len=40)  :: mod = "MOM_main (MOM_sum_driver)" ! This module's name.
+  character(len=40)  :: mdl = "MOM_main (MOM_sum_driver)" ! This module's name.
   character(len=200) :: mesg
 
   !#######################################################################
@@ -183,9 +166,9 @@ program MOM_main
 contains
 
 subroutine benchmark_init_topog_local(D, G, param_file, max_depth)
-  type(ocean_grid_type), intent(in)             :: G
+  type(ocean_grid_type), intent(in)             :: G    !< The ocean's grid structure
   real, intent(out), dimension(SZI_(G),SZJ_(G)) :: D
-  type(param_file_type), intent(in)             :: param_file
+  type(param_file_type), intent(in)             :: param_file !< A structure to parse for run-time parameters
   real,                  intent(in)             :: max_depth
 ! Arguments: D          - the bottom depth in m. Intent out.
 !  (in)      G          - The ocean's grid structure.
@@ -200,15 +183,15 @@ subroutine benchmark_init_topog_local(D, G, param_file, max_depth)
   real :: x, y
 ! This include declares and sets the variable "version".
 #include "version_variable.h"
-  character(len=40)  :: mod = "benchmark_initialize_topography" ! This subroutine's name.
+  character(len=40)  :: mdl = "benchmark_initialize_topography" ! This subroutine's name.
   integer :: i, j, is, ie, js, je, isd, ied, jsd, jed
   is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec
   isd = G%isd ; ied = G%ied ; jsd = G%jsd ; jed = G%jed
 
   call MOM_mesg("  benchmark_initialization.F90, benchmark_initialize_topography: setting topography", 5)
 
-  call log_version(param_file, mod, version)
-  call get_param(param_file, mod, "MINIMUM_DEPTH", min_depth, &
+  call log_version(param_file, mdl, version)
+  call get_param(param_file, mdl, "MINIMUM_DEPTH", min_depth, &
                  "The minimum depth of the ocean.", units="m", default=0.0)
 
   PI = 4.0*atan(1.0)

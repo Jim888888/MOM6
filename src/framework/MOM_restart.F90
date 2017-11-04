@@ -1,23 +1,6 @@
 module MOM_restart
-!***********************************************************************
-!*                   GNU General Public License                        *
-!* This file is a part of MOM.                                         *
-!*                                                                     *
-!* MOM is free software; you can redistribute it and/or modify it and  *
-!* are expected to follow the terms of the GNU General Public License  *
-!* as published by the Free Software Foundation; either version 2 of   *
-!* the License, or (at your option) any later version.                 *
-!*                                                                     *
-!* MOM is distributed in the hope that it will be useful, but WITHOUT  *
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY  *
-!* or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public    *
-!* License for more details.                                           *
-!*                                                                     *
-!* For the full text of the GNU General Public License,                *
-!* write to: Free Software Foundation, Inc.,                           *
-!*           675 Mass Ave, Cambridge, MA 02139, USA.                   *
-!* or see:   http://www.gnu.org/licenses/gpl.html                      *
-!***********************************************************************
+
+! This file is part of MOM6. See LICENSE.md for the license.
 
 !********+*********+*********+*********+*********+*********+*********+**
 !*                                                                     *
@@ -711,11 +694,11 @@ subroutine save_restart(directory, time, G, CS, time_stamped, filename, GV)
 !  save_restart saves all registered variables to restart files.
   character(len=*),        intent(in)    :: directory
   type(time_type),         intent(in)    :: time
-  type(ocean_grid_type),   intent(inout) :: G
+  type(ocean_grid_type),   intent(inout) :: G    !< The ocean's grid structure
   type(MOM_restart_CS),    pointer       :: CS
   logical,          optional, intent(in) :: time_stamped
   character(len=*), optional, intent(in) :: filename
-  type(verticalGrid_type), optional, intent(in) :: GV
+  type(verticalGrid_type), optional, intent(in) :: GV   !< The ocean's vertical grid structure
 ! Arguments: directory - The directory where the restart file goes.
 !  (in)      time - The time of this restart file.
 !  (in)      G - The ocean's grid structure.
@@ -889,7 +872,7 @@ subroutine restore_state(filename, directory, day, G, CS)
   character(len=*),      intent(in)  :: filename
   character(len=*),      intent(in)  :: directory
   type(time_type),       intent(out) :: day
-  type(ocean_grid_type), intent(in)  :: G
+  type(ocean_grid_type), intent(in)  :: G    !< The ocean's grid structure
   type(MOM_restart_CS),  pointer     :: CS
 !    This subroutine reads the model state from previously
 !  generated files.  All restart variables are read from the first
@@ -906,7 +889,7 @@ subroutine restore_state(filename, directory, day, G, CS)
 !                 restart_init.
 
   character(len=200) :: filepath  ! The path (dir/file) to the file being opened.
-  character(len=80) :: fname      ! The name of the current file.
+  character(len=80) :: fname     ! The name of the current file.
   character(len=8)  :: suffix     ! A suffix (like "_2") that is added to any
                                   ! additional restart files.
   character(len=256) :: mesg      ! A message for warnings.
@@ -1245,7 +1228,7 @@ subroutine restore_state(filename, directory, day, G, CS)
 end subroutine restore_state
 
 subroutine restart_init(param_file, CS, restart_root)
-  type(param_file_type), intent(in) :: param_file
+  type(param_file_type), intent(in) :: param_file !< A structure to parse for run-time parameters
   type(MOM_restart_CS),  pointer    :: CS
   character(len=*), optional, intent(in) :: restart_root
 ! Arguments: param_file - A structure indicating the open file to parse for
@@ -1257,7 +1240,7 @@ subroutine restart_init(param_file, CS, restart_root)
 !                           module by other components.
 ! This include declares and sets the variable "version".
 #include "version_variable.h"
-  character(len=40)  :: mod = "MOM_restart"   ! This module's name.
+  character(len=40)  :: mdl = "MOM_restart"   ! This module's name.
 
   if (associated(CS)) then
     call MOM_error(WARNING, "restart_init called with an associated control structure.")
@@ -1266,8 +1249,8 @@ subroutine restart_init(param_file, CS, restart_root)
   allocate(CS)
 
   ! Read all relevant parameters and write them to the model log.
-  call log_version(param_file, mod, version, "")
-  call get_param(param_file, mod, "PARALLEL_RESTARTFILES", &
+  call log_version(param_file, mdl, version, "")
+  call get_param(param_file, mdl, "PARALLEL_RESTARTFILES", &
                                 CS%parallel_restartfiles, &
                  "If true, each processor writes its own restart file, \n"//&
                  "otherwise a single restart file is generated", &
@@ -1275,16 +1258,16 @@ subroutine restart_init(param_file, CS, restart_root)
 
   if (present(restart_root)) then
     CS%restartfile = restart_root
-    call log_param(param_file, mod, "RESTARTFILE from argument", CS%restartfile)
+    call log_param(param_file, mdl, "RESTARTFILE from argument", CS%restartfile)
   else
-    call get_param(param_file, mod, "RESTARTFILE", CS%restartfile, &
+    call get_param(param_file, mdl, "RESTARTFILE", CS%restartfile, &
                  "The name-root of the restart file.", default="MOM.res")
   endif
-  call get_param(param_file, mod, "LARGE_FILE_SUPPORT", CS%large_file_support, &
+  call get_param(param_file, mdl, "LARGE_FILE_SUPPORT", CS%large_file_support, &
                  "If true, use the file-size limits with NetCDF large \n"//&
                  "file support (4Gb), otherwise the limit is 2Gb.", &
                  default=.true.)
-  call get_param(param_file, mod, "MAX_FIELDS", CS%max_fields, &
+  call get_param(param_file, mdl, "MAX_FIELDS", CS%max_fields, &
                  "The maximum number of restart fields that can be used.", &
                  default=100)
 

@@ -268,8 +268,8 @@ subroutine diabatic(u, v, h, tv, Hml, fluxes, visc, ADp, CDp, dt, G, GV, CS)
     cn       ! baroclinic gravity wave speeds (formerly cg1 - BDM)
 
   real, dimension(SZI_(G),SZJ_(G)) :: &
-    Rcv_ml   ! coordinate density of mixed layer, used for applying sponges
-
+    Rcv_ml, &   ! coordinate density of mixed layer, used for applying sponges
+    SkinBuoyFlux! 2d surface buoyancy flux (m2/s3), used by ePBL
   real, dimension(SZI_(G),SZJ_(G),G%ke) :: h_diag                ! diagnostic array for thickness
   real, dimension(SZI_(G),SZJ_(G),G%ke) :: temp_diag             ! diagnostic array for temp
   real, dimension(SZI_(G),SZJ_(G),G%ke) :: saln_diag             ! diagnostic array for salinity
@@ -489,8 +489,8 @@ subroutine diabatic(u, v, h, tv, Hml, fluxes, visc, ADp, CDp, dt, G, GV, CS)
     if ((CS%ML_mix_first > 0.0) .or. CS%use_geothermal) then
       call find_uv_at_h(u, v, h_orig, u_h, v_h, G, GV, eaml, ebml)
       if (CS%debug) then
-        call hchksum(eaml, "after find_uv_at_h eaml",G%HI)
-        call hchksum(ebml, "after find_uv_at_h ebml",G%HI)
+        call hchksum(eaml, "after find_uv_at_h eaml",G%HI, scale=GV%H_to_m)
+        call hchksum(ebml, "after find_uv_at_h ebml",G%HI, scale=GV%H_to_m)
       endif
     else
       call find_uv_at_h(u, v, h, u_h, v_h, G, GV)
@@ -637,8 +637,8 @@ subroutine diabatic(u, v, h, tv, Hml, fluxes, visc, ADp, CDp, dt, G, GV, CS)
 
     call cpu_clock_begin(id_clock_kpp)
     if (CS%debug) then
-      call hchksum(CS%KPP_temp_flux*GV%H_to_m, "before KPP_applyNLT netHeat",G%HI,haloshift=0)
-      call hchksum(CS%KPP_salt_flux*GV%H_to_m, "before KPP_applyNLT netSalt",G%HI,haloshift=0)
+      call hchksum(CS%KPP_temp_flux, "before KPP_applyNLT netHeat",G%HI,haloshift=0, scale=GV%H_to_m)
+      call hchksum(CS%KPP_salt_flux, "before KPP_applyNLT netSalt",G%HI,haloshift=0, scale=GV%H_to_m)
       call hchksum(CS%KPP_NLTheat, "before KPP_applyNLT NLTheat",G%HI,haloshift=0)
       call hchksum(CS%KPP_NLTscalar, "before KPP_applyNLT NLTscalar",G%HI,haloshift=0)
     endif
@@ -723,8 +723,8 @@ subroutine diabatic(u, v, h, tv, Hml, fluxes, visc, ADp, CDp, dt, G, GV, CS)
     call MOM_forcing_chksum("after calc_entrain ", fluxes, G, haloshift=0)
     call MOM_thermovar_chksum("after calc_entrain ", tv, G)
     call MOM_state_chksum("after calc_entrain ", u, v, h, G, GV, haloshift=0)
-    call hchksum(GV%H_to_m*ea, "after calc_entrain ea",G%HI,haloshift=0)
-    call hchksum(GV%H_to_m*eb, "after calc_entrain eb",G%HI,haloshift=0)
+    call hchksum(ea, "after calc_entrain ea", G%HI, haloshift=0, scale=GV%H_to_m)
+    call hchksum(eb, "after calc_entrain eb", G%HI, haloshift=0, scale=GV%H_to_m)
   endif
 
   ! Apply forcing when using the ALE algorithm
@@ -746,16 +746,15 @@ subroutine diabatic(u, v, h, tv, Hml, fluxes, visc, ADp, CDp, dt, G, GV, CS)
         h_prebound(i,j,k) = h(i,j,k)
     enddo ; enddo ; enddo
     if (CS%use_energetic_PBL) then
-      call applyBoundaryFluxesInOut(CS%diabatic_aux_CSp, G, GV, dt, fluxes, CS%optics, &
-                          h, tv, CS%aggregate_FW_forcing, CS%evap_CFL_limit, &
-                          CS%minimum_forcing_depth, cTKE, dSV_dT, dSV_dS)
 
-      call calculateBuoyancyFlux2d(G, GV, fluxes, CS%optics, h, tv%T, tv%S, tv, &
-           CS%KPP_buoy_flux, CS%KPP_temp_flux, CS%KPP_salt_flux)
+      skinbuoyflux(:,:) = 0.0
+      call applyBoundaryFluxesInOut(CS%diabatic_aux_CSp, G, GV, dt, fluxes, CS%optics, &
+              h, tv, CS%aggregate_FW_forcing, CS%evap_CFL_limit,                         &
+              CS%minimum_forcing_depth, cTKE, dSV_dT, dSV_dS, SkinBuoyFlux=SkinBuoyFlux)
 
       if (CS%debug) then
-        call hchksum(ea, "after applyBoundaryFluxes ea",G%HI,haloshift=0)
-        call hchksum(eb, "after applyBoundaryFluxes eb",G%HI,haloshift=0)
+        call hchksum(ea, "after applyBoundaryFluxes ea",G%HI,haloshift=0, scale=GV%H_to_m)
+        call hchksum(eb, "after applyBoundaryFluxes eb",G%HI,haloshift=0, scale=GV%H_to_m)
         call hchksum(cTKE, "after applyBoundaryFluxes cTKE",G%HI,haloshift=0)
         call hchksum(dSV_dT, "after applyBoundaryFluxes dSV_dT",G%HI,haloshift=0)
         call hchksum(dSV_dS, "after applyBoundaryFluxes dSV_dS",G%HI,haloshift=0)
@@ -763,12 +762,12 @@ subroutine diabatic(u, v, h, tv, Hml, fluxes, visc, ADp, CDp, dt, G, GV, CS)
 
       call find_uv_at_h(u, v, h, u_h, v_h, G, GV)
       call energetic_PBL(h, u_h, v_h, tv, fluxes, dt, Kd_ePBL, G, GV, &
-                         CS%energetic_PBL_CSp, dSV_dT, dSV_dS, cTKE, CS%KPP_Buoy_Flux)
+           CS%energetic_PBL_CSp, dSV_dT, dSV_dS, cTKE, SkinBuoyFlux)
 
       ! If visc%MLD exists, copy the ePBL's MLD into it
       if (associated(visc%MLD)) then
         call energetic_PBL_get_MLD(CS%energetic_PBL_CSp, visc%MLD, G)
-        call pass_var(visc%MLD, G%domain)
+        call pass_var(visc%MLD, G%domain, halo=1)
         Hml(:,:) = visc%MLD(:,:)
       endif
 
@@ -795,8 +794,8 @@ subroutine diabatic(u, v, h, tv, Hml, fluxes, visc, ADp, CDp, dt, G, GV, CS)
       enddo ; enddo ; enddo
 
       if (CS%debug) then
-        call hchksum(ea, "after ePBL ea",G%HI,haloshift=0)
-        call hchksum(eb, "after ePBL eb",G%HI,haloshift=0)
+        call hchksum(ea, "after ePBL ea",G%HI,haloshift=0, scale=GV%H_to_m)
+        call hchksum(eb, "after ePBL eb",G%HI,haloshift=0, scale=GV%H_to_m)
         call hchksum(Kd_ePBL, "after ePBL Kd_ePBL",G%HI,haloshift=0)
       endif
 
@@ -966,8 +965,8 @@ subroutine diabatic(u, v, h, tv, Hml, fluxes, visc, ADp, CDp, dt, G, GV, CS)
         eb(i,j,k) = eb(i,j,k) + ebml(i,j,k)
       enddo ; enddo ; enddo
       if (CS%debug) then
-        call hchksum(GV%H_to_m*ea, "after ea = ea + eaml",G%HI,haloshift=0)
-        call hchksum(GV%H_to_m*eb, "after eb = eb + ebml",G%HI,haloshift=0)
+        call hchksum(ea, "after ea = ea + eaml",G%HI,haloshift=0, scale=GV%H_to_m)
+        call hchksum(eb, "after eb = eb + ebml",G%HI,haloshift=0, scale=GV%H_to_m)
       endif
     endif
 
@@ -1015,8 +1014,8 @@ subroutine diabatic(u, v, h, tv, Hml, fluxes, visc, ADp, CDp, dt, G, GV, CS)
     if (ASSOCIATED(tv%T)) then
 
       if (CS%debug) then
-        call hchksum(GV%H_to_m*ea, "before triDiagTS ea ",G%HI,haloshift=0)
-        call hchksum(GV%H_to_m*eb, "before triDiagTS eb ",G%HI,haloshift=0)
+        call hchksum(ea, "before triDiagTS ea ",G%HI,haloshift=0, scale=GV%H_to_m)
+        call hchksum(eb, "before triDiagTS eb ",G%HI,haloshift=0, scale=GV%H_to_m)
       endif
       call cpu_clock_begin(id_clock_tridiag)
 
@@ -1053,8 +1052,8 @@ subroutine diabatic(u, v, h, tv, Hml, fluxes, visc, ADp, CDp, dt, G, GV, CS)
   if (CS%debug) then
     call MOM_state_chksum("after mixed layer ", u, v, h, G, GV, haloshift=0)
     call MOM_thermovar_chksum("after mixed layer ", tv, G)
-    call hchksum(ea, "after mixed layer ea", G%HI)
-    call hchksum(eb, "after mixed layer eb", G%HI)
+    call hchksum(ea, "after mixed layer ea", G%HI, scale=GV%H_to_m)
+    call hchksum(eb, "after mixed layer eb", G%HI, scale=GV%H_to_m)
   endif
 
   if (.not. CS%useALEalgorithm) then
@@ -1261,8 +1260,8 @@ subroutine diabatic(u, v, h, tv, Hml, fluxes, visc, ADp, CDp, dt, G, GV, CS)
 ! mixed layer turbulence is applied elsewhere.
   if (CS%bulkmixedlayer) then
     if (CS%debug) then
-      call hchksum(ea, "before net flux rearrangement ea",G%HI)
-      call hchksum(eb, "before net flux rearrangement eb",G%HI)
+      call hchksum(ea, "before net flux rearrangement ea",G%HI, scale=GV%H_to_m)
+      call hchksum(eb, "before net flux rearrangement eb",G%HI, scale=GV%H_to_m)
     endif
 !$OMP do
     do j=js,je
@@ -1273,8 +1272,8 @@ subroutine diabatic(u, v, h, tv, Hml, fluxes, visc, ADp, CDp, dt, G, GV, CS)
       enddo ; enddo
     enddo
     if (CS%debug) then
-      call hchksum(ea, "after net flux rearrangement ea",G%HI)
-      call hchksum(eb, "after net flux rearrangement eb",G%HI)
+      call hchksum(ea, "after net flux rearrangement ea",G%HI, scale=GV%H_to_m)
+      call hchksum(eb, "after net flux rearrangement eb",G%HI, scale=GV%H_to_m)
     endif
   endif
 
@@ -1312,9 +1311,9 @@ subroutine diabatic(u, v, h, tv, Hml, fluxes, visc, ADp, CDp, dt, G, GV, CS)
     !  or enters the ocean with the surface velocity.
     if (CS%debug) then
       call MOM_state_chksum("before u/v tridiag ", u, v, h, G, GV, haloshift=0)
-      call hchksum(ea, "before u/v tridiag ea",G%HI)
-      call hchksum(eb, "before u/v tridiag eb",G%HI)
-      call hchksum(hold, "before u/v tridiag hold",G%HI)
+      call hchksum(ea, "before u/v tridiag ea",G%HI, scale=GV%H_to_m)
+      call hchksum(eb, "before u/v tridiag eb",G%HI, scale=GV%H_to_m)
+      call hchksum(hold, "before u/v tridiag hold",G%HI, scale=GV%H_to_m)
     endif
     call cpu_clock_begin(id_clock_tridiag)
 !$OMP parallel do default(none) shared(js,je,Isq,Ieq,ADp,u,hold,ea,h_neglect,eb,nz,Idt) &
@@ -2073,13 +2072,15 @@ subroutine diabatic_driver_init(Time, G, GV, param_file, useALEalgorithm, diag, 
   ! CS%useKPP is set to True if KPP-scheme is to be used, False otherwise.
   ! KPP_init() allocated CS%KPP_Csp and also sets CS%KPPisPassive
   CS%useKPP = KPP_init(param_file, G, diag, Time, CS%KPP_CSp, passive=CS%KPPisPassive)
-  if (CS%useKPP .or. CS%use_energetic_PBL) then
+  if (CS%useKPP) then
     allocate( CS%KPP_NLTheat(isd:ied,jsd:jed,nz+1) )   ; CS%KPP_NLTheat(:,:,:)   = 0.
     allocate( CS%KPP_NLTscalar(isd:ied,jsd:jed,nz+1) ) ; CS%KPP_NLTscalar(:,:,:) = 0.
+  endif
+  if (CS%useKPP) then
     allocate( CS%KPP_buoy_flux(isd:ied,jsd:jed,nz+1) ) ; CS%KPP_buoy_flux(:,:,:) = 0.
     allocate( CS%KPP_temp_flux(isd:ied,jsd:jed) )      ; CS%KPP_temp_flux(:,:)   = 0.
     allocate( CS%KPP_salt_flux(isd:ied,jsd:jed) )      ; CS%KPP_salt_flux(:,:)   = 0.
- endif
+  endif
 
   call get_param(param_file, mod, "SALT_REJECT_BELOW_ML", CS%salt_reject_below_ML, &
                  "If true, place salt from brine rejection below the mixed layer,\n"// &
@@ -2318,12 +2319,14 @@ subroutine diabatic_driver_end(CS)
 
   call entrain_diffusive_end(CS%entrain_diffusive_CSp)
   call set_diffusivity_end(CS%set_diff_CSp)
-  if (CS%useKPP .or. CS%use_energetic_PBL) then
-    deallocate( CS%KPP_NLTheat )
-    deallocate( CS%KPP_NLTscalar )
+  if (CS%useKPP) then
     deallocate( CS%KPP_buoy_flux )
     deallocate( CS%KPP_temp_flux )
     deallocate( CS%KPP_salt_flux )
+  endif
+  if (CS%useKPP) then
+    deallocate( CS%KPP_NLTheat )
+    deallocate( CS%KPP_NLTscalar )
     call KPP_end(CS%KPP_CSp)
   endif
   if (CS%useConvection) call diffConvection_end(CS%Conv_CSp)
@@ -2378,36 +2381,5 @@ end subroutine diabatic_driver_end
 !!  the length of time over which to act (dt).  The velocities and
 !!  thickness are taken as inputs and modified within the subroutine.
 !!  There is no limit on the time step.
-!!
-!!
-!!  \section section_gridlayout MOM grid layout
-!!
-!!  A small fragment of the grid is shown below:
-!!
-!! \verbatim
-!!    j+1  x ^ x ^ x
-!!
-!!    j+1  > o > o >
-!!
-!!    j    x ^ x ^ x
-!!
-!!    j    > o > o >
-!!
-!!    j-1  x ^ x ^ x
-!!
-!!        i-1  i  i+1
-!!
-!!           i  i+1
-!!
-!! \endverbatim
-!!
-!!  Fields at each point
-!!  * x =  q, CoriolisBu
-!!  * ^ =  v, PFv, CAv, vh, diffv, tauy, vbt, vhtr
-!!  * > =  u, PFu, CAu, uh, diffu, taux, ubt, uhtr
-!!  * o =  h, bathyT, eta, T, S, tr
-!!
-!!  The boundaries always run through q grid points (x).
-!!
 
 end module MOM_diabatic_driver

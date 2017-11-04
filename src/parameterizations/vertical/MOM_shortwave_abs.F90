@@ -1,23 +1,6 @@
 module MOM_shortwave_abs
-!***********************************************************************
-!*                   GNU General Public License                        *
-!* This file is a part of MOM.                                         *
-!*                                                                     *
-!* MOM is free software; you can redistribute it and/or modify it and  *
-!* are expected to follow the terms of the GNU General Public License  *
-!* as published by the Free Software Foundation; either version 2 of   *
-!* the License, or (at your option) any later version.                 *
-!*                                                                     *
-!* MOM is distributed in the hope that it will be useful, but WITHOUT  *
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY  *
-!* or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public    *
-!* License for more details.                                           *
-!*                                                                     *
-!* For the full text of the GNU General Public License,                *
-!* write to: Free Software Foundation, Inc.,                           *
-!*           675 Mass Ave, Cambridge, MA 02139, USA.                   *
-!* or see:   http://www.gnu.org/licenses/gpl.html                      *
-!***********************************************************************
+
+! This file is part of MOM6. See LICENSE.md for the license.
 
 use MOM_error_handler, only : MOM_error, FATAL, WARNING
 use MOM_file_parser,   only : get_param, log_param, log_version, param_file_type
@@ -58,32 +41,68 @@ subroutine absorbRemainingSW(G, GV, h, opacity_band, nsw, j, dt, H_limit_fluxes,
                              adjustAbsorptionProfile, absorbAllSW, T, Pen_SW_bnd, &
                              eps, ksort, htot, Ttot, TKE, dSV_dT)
 
-! This subroutine applies shortwave heating below the boundary layer (when running
-! with the bulk mixed layer from GOLD) or throughout the water column.  In
-! addition, it causes all of the remaining SW radiation to be absorbed,
-! provided that the total water column thickness is greater than
-! H_limit_fluxes.  For thinner water columns, the heating is scaled down
-! proportionately, the assumption being that the remaining heating (which is
-! left in Pen_SW) should go into an (absent for now) ocean bottom sediment layer.
+!< This subroutine applies shortwave heating below the boundary layer (when running
+!! with the bulk mixed layer from GOLD) or throughout the water column.  In
+!! addition, it causes all of the remaining SW radiation to be absorbed,
+!! provided that the total water column thickness is greater than
+!! H_limit_fluxes.  For thinner water columns, the heating is scaled down
+!! proportionately, the assumption being that the remaining heating (which is
+!! left in Pen_SW) should go into an (absent for now) ocean bottom sediment layer.
 
-  type(ocean_grid_type),             intent(in)    :: G
-  type(verticalGrid_type),           intent(in)    :: GV
-  real, dimension(SZI_(G),SZK_(G)),  intent(in)    :: h
-  real, dimension(:,:,:),            intent(in)    :: opacity_band
-  integer,                           intent(in)    :: nsw
-  integer,                           intent(in)    :: j
-  real,                              intent(in)    :: dt
-  real,                              intent(in)    :: H_limit_fluxes
-  logical,                           intent(in)    :: adjustAbsorptionProfile
-  logical,                           intent(in)    :: absorbAllSW
-  real, dimension(SZI_(G),SZK_(G)),  intent(inout) :: T
-  real, dimension(:,:),              intent(inout) :: Pen_SW_bnd
-  real, dimension(SZI_(G),SZK_(G)),    optional, intent(in)    :: eps
-  integer, dimension(SZI_(G),SZK_(G)), optional, intent(in)    :: ksort
-  real, dimension(SZI_(G)),            optional, intent(in)    :: htot
-  real, dimension(SZI_(G)),            optional, intent(inout) :: Ttot
-  real, dimension(SZI_(G),SZK_(G)),    optional, intent(in)    :: dSV_dT
-  real, dimension(SZI_(G),SZK_(G)),    optional, intent(inout) :: TKE
+  type(ocean_grid_type),            intent(in)    :: G     !< The ocean's grid structure.
+  type(verticalGrid_type),          intent(in)    :: GV    !< The ocean's vertical grid structure.
+  real, dimension(SZI_(G),SZK_(G)), intent(in)    :: h     !< Layer thicknesses, in H (usually m or
+                                                           !! kg m-2).
+  real, dimension(:,:,:),           intent(in)    :: opacity_band !< Opacity in each band of
+                                                           !! penetrating shortwave radiation (1/H).
+                                                           !! The indicies are band, i, k.
+  integer,                          intent(in)    :: nsw   !< Number of bands of penetrating
+                                                           !! shortwave radiation.
+  integer,                          intent(in)    :: j     !< j-index to work on.
+  real,                             intent(in)    :: dt    !< Time step (seconds).
+  real,                             intent(in)    :: H_limit_fluxes !< If the total ocean depth is
+                                                           !! less than this, they are scaled away
+                                                           !! to avoid numerical instabilities. (H)
+                                                           !! This would not be necessary if a
+                                                           !! finite heat capacity mud-layer
+                                                           !! were added.
+  logical,                          intent(in)    :: adjustAbsorptionProfile !< If true, apply
+                                                           !! heating above the layers in which it
+                                                           !! should have occurred to get the
+                                                           !! correct mean depth (and potential
+                                                           !! energy change) of the shortwave that
+                                                           !! should be absorbed by each layer.
+  logical,                          intent(in)    :: absorbAllSW !< If true, apply heating above the
+                                                           !! layers in which it should have occurred
+                                                           !! to get the correct mean depth (and
+                                                           !! potential energy change) of the
+                                                           !! shortwave that should be absorbed by
+                                                           !! each layer.
+  real, dimension(SZI_(G),SZK_(G)), intent(inout) :: T     !< Layer potential/conservative
+                                                           !! temperatures (deg C)
+  real, dimension(:,:),             intent(inout) :: Pen_SW_bnd !< Penetrating shortwave heating in
+                                                           !! each band that hits the bottom and
+                                                           !! will be redistributed through the
+                                                           !! water column (units of K*H), size
+                                                           !! nsw x SZI_(G).
+  real, dimension(SZI_(G),SZK_(G)),    &
+                          optional, intent(in)    :: eps   !< Small thickness that must remain in
+                                                           !! each layer, and which will not be
+                                                           !! subject to heating (units of H)
+  integer, dimension(SZI_(G),SZK_(G)), &
+                          optional, intent(in)    :: ksort !< Density-sorted k-indicies.
+  real, dimension(SZI_(G)),            &
+                          optional, intent(in)    :: htot  !< Total mixed layer thickness, in H .
+  real, dimension(SZI_(G)),            &
+                          optional, intent(inout) :: Ttot  !< Depth integrated mixed layer
+                                                           !! temperature (units of K H).
+  real, dimension(SZI_(G),SZK_(G)),    &
+                          optional, intent(in)    :: dSV_dT !< The partial derivative of specific
+                                                           !! volume with temperature, in m3 kg-1
+                                                           !! K-1.
+  real, dimension(SZI_(G),SZK_(G)),    &
+                          optional, intent(inout) :: TKE   !< The TKE sink from mixing the heating
+                                                           !! throughout a layer, in J m-2.
 
 ! Arguments:
 !  (in)    G            = the ocean grid structure.
@@ -324,20 +343,24 @@ end subroutine absorbRemainingSW
 
 subroutine sumSWoverBands(G, GV, h, opacity_band, nsw, j, dt, &
                           H_limit_fluxes, absorbAllSW, iPen_SW_bnd, netPen)
-! This subroutine calculates the total shortwave heat flux integrated over
-! bands as a function of depth.  This routine is only called for computing
-! buoyancy fluxes for use in KPP. This routine does not update the state.
-  type(ocean_grid_type),                 intent(in)    :: G
-  type(verticalGrid_type),               intent(in)    :: GV
-  real, dimension(SZI_(G),SZK_(G)),      intent(in)    :: h
-  real, dimension(:,:,:),                intent(in)    :: opacity_band
-  integer,                               intent(in)    :: nsw
-  integer,                               intent(in)    :: j
-  real,                                  intent(in)    :: dt
-  real,                                  intent(in)    :: H_limit_fluxes
-  logical,                               intent(in)    :: absorbAllSW
-  real, dimension(:,:),                  intent(in)    :: iPen_SW_bnd
-  real, dimension(SZI_(G),SZK_(G)+1), intent(inout) :: netPen ! Units of K H
+!< This subroutine calculates the total shortwave heat flux integrated over
+!! bands as a function of depth.  This routine is only called for computing
+!! buoyancy fluxes for use in KPP. This routine does not updat e the state.
+  type(ocean_grid_type),              intent(in)    :: G   !< The ocean's grid structure.
+  type(verticalGrid_type),            intent(in)    :: GV  !< The ocean's vertical grid structure.
+  real, dimension(SZI_(G),SZK_(G)),   intent(in)    :: h   !< Layer thicknesses, in H (usually m
+                                                           !! or kg m-2).
+  real, dimension(:,:,:),             intent(in)    :: opacity_band !< opacity in each band of
+                                                           !! penetrating shortwave radiation,
+                                                           !! in m-1. The indicies are band, i, k.
+  integer,                            intent(in)    :: nsw !< number of bands of penetrating
+                                                           !! shortwave radiation.
+  integer,                            intent(in)    :: j   !< j-index to work on.
+  real,                               intent(in)    :: dt  !< Time step (seconds).
+  real,                               intent(in)    :: H_limit_fluxes
+  logical,                            intent(in)    :: absorbAllSW
+  real, dimension(:,:),               intent(in)    :: iPen_SW_bnd
+  real, dimension(SZI_(G),SZK_(G)+1), intent(inout) :: netPen ! Units of K H.
 
 ! Arguments:
 !  (in)      G             = ocean grid structure

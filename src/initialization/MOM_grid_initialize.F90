@@ -1,23 +1,6 @@
 module MOM_grid_initialize
-!***********************************************************************
-!*                   GNU General Public License                        *
-!* This file is a part of MOM.                                         *
-!*                                                                     *
-!* MOM is free software; you can redistribute it and/or modify it and  *
-!* are expected to follow the terms of the GNU General Public License  *
-!* as published by the Free Software Foundation; either version 2 of   *
-!* the License, or (at your option) any later version.                 *
-!*                                                                     *
-!* MOM is distributed in the hope that it will be useful, but WITHOUT  *
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY  *
-!* or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public    *
-!* License for more details.                                           *
-!*                                                                     *
-!* For the full text of the GNU General Public License,                *
-!* write to: Free Software Foundation, Inc.,                           *
-!*           675 Mass Ave, Cambridge, MA 02139, USA.                   *
-!* or see:   http://www.gnu.org/licenses/gpl.html                      *
-!***********************************************************************
+
+! This file is part of MOM6. See LICENSE.md for the license.
 
 !********+*********+*********+*********+*********+*********+*********+**
 !*                                                                     *
@@ -180,7 +163,7 @@ subroutine grid_metrics_chksum(parent, G)
   call uvchksum(trim(parent)//': dxC[uv]', G%dxCu, G%dyCv, G%HI, haloshift=halo)
 
   call uvchksum(trim(parent)//': dxC[uv]', &
-                G%dxCv, G%dyCu, G%HI, haloshift=halo)
+                G%dyCu, G%dxCv, G%HI, haloshift=halo)
 
   call Bchksum_pair(trim(parent)//': dxB[uv]', &
                     G%dxBu, G%dyBu, G%HI, haloshift=halo)
@@ -192,7 +175,7 @@ subroutine grid_metrics_chksum(parent, G)
                 G%IdxCu, G%IdyCv, G%HI, haloshift=halo)
 
   call uvchksum(trim(parent)//': Id[xy]C[uv]', &
-                G%IdxCv, G%IdyCu, G%HI, haloshift=halo)
+                G%IdyCu, G%IdxCv, G%HI, haloshift=halo)
 
   call Bchksum_pair(trim(parent)//': Id[xy]B[uv]', &
                     G%IdxBu, G%IdyBu, G%HI, haloshift=halo)
@@ -247,7 +230,7 @@ subroutine set_grid_metrics_from_mosaic(G, param_file)
   real, dimension(2*G%isd-3:2*G%ied+1,2*G%jsd-3:2*G%jed+1) :: tmpZ
   real, dimension(:,:), allocatable :: tmpGlbl
   character(len=200) :: filename, grid_file, inputdir
-  character(len=64)  :: mod="MOM_grid_init set_grid_metrics_from_mosaic"
+  character(len=64)  :: mdl = "MOM_grid_init set_grid_metrics_from_mosaic"
   integer :: err=0, ni, nj, global_indices(4)
   type(MOM_domain_type) :: SGdom ! Supergrid domain
   integer :: i, j, i2, j2
@@ -257,13 +240,13 @@ subroutine set_grid_metrics_from_mosaic(G, param_file)
 
   call callTree_enter("set_grid_metrics_from_mosaic(), MOM_grid_initialize.F90")
 
-  call get_param(param_file, mod, "GRID_FILE", grid_file, &
+  call get_param(param_file, mdl, "GRID_FILE", grid_file, &
                  "Name of the file from which to read horizontal grid data.", &
                  fail_if_missing=.true.)
-  call get_param(param_file,  mod, "INPUTDIR", inputdir, default=".")
+  call get_param(param_file,  mdl, "INPUTDIR", inputdir, default=".")
   inputdir = slasher(inputdir)
   filename = trim(adjustl(inputdir)) // trim(adjustl(grid_file))
-  call log_param(param_file, mod, "INPUTDIR/GRID_FILE", filename)
+  call log_param(param_file, mdl, "INPUTDIR/GRID_FILE", filename)
   if (.not.file_exists(filename)) &
     call MOM_error(FATAL," set_grid_metrics_from_mosaic: Unable to open "//&
                            trim(filename))
@@ -484,7 +467,7 @@ subroutine set_grid_metrics_cartesian(G, param_file)
   real :: I_dx, I_dy                   ! Inverse grid spacings in m.
   real :: PI
   character(len=80) :: units_temp
-  character(len=48) :: mod  = "MOM_grid_init set_grid_metrics_cartesian"
+  character(len=48) :: mdl  = "MOM_grid_init set_grid_metrics_cartesian"
 
   niglobal = G%Domain%niglobal ; njglobal = G%Domain%njglobal
   isd = G%isd ; ied = G%ied ; jsd = G%jsd ; jed = G%jed
@@ -495,25 +478,25 @@ subroutine set_grid_metrics_cartesian(G, param_file)
 
   PI = 4.0*atan(1.0) ;
 
-  call get_param(param_file, mod, "AXIS_UNITS", units_temp, &
+  call get_param(param_file, mdl, "AXIS_UNITS", units_temp, &
                  "The units for the Cartesian axes. Valid entries are: \n"//&
                  " \t degrees - degrees of latitude and longitude \n"//&
                  " \t m - meters \n \t k - kilometers", default="degrees")
-  call get_param(param_file, mod, "SOUTHLAT", G%south_lat, &
+  call get_param(param_file, mdl, "SOUTHLAT", G%south_lat, &
                  "The southern latitude of the domain or the equivalent \n"//&
                  "starting value for the y-axis.", units=units_temp, &
                  fail_if_missing=.true.)
-  call get_param(param_file, mod, "LENLAT", G%len_lat, &
+  call get_param(param_file, mdl, "LENLAT", G%len_lat, &
                  "The latitudinal or y-direction length of the domain.", &
                  units=units_temp, fail_if_missing=.true.)
-  call get_param(param_file, mod, "WESTLON", G%west_lon, &
+  call get_param(param_file, mdl, "WESTLON", G%west_lon, &
                  "The western longitude of the domain or the equivalent \n"//&
                  "starting value for the x-axis.", units=units_temp, &
                  default=0.0)
-  call get_param(param_file, mod, "LENLON", G%len_lon, &
+  call get_param(param_file, mdl, "LENLON", G%len_lon, &
                  "The longitudinal or x-direction length of the domain.", &
                  units=units_temp, fail_if_missing=.true.)
-  call get_param(param_file, mod, "RAD_EARTH", G%Rad_Earth, &
+  call get_param(param_file, mdl, "RAD_EARTH", G%Rad_Earth, &
                  "The radius of the Earth.", units="m", default=6.378e6)
 
   if (units_temp(1:1) == 'k') then
@@ -521,7 +504,7 @@ subroutine set_grid_metrics_cartesian(G, param_file)
   elseif (units_temp(1:1) == 'm') then
     G%x_axis_units = "meters" ; G%y_axis_units = "meters"
   endif
-  call log_param(param_file, mod, "explicit AXIS_UNITS", G%x_axis_units)
+  call log_param(param_file, mdl, "explicit AXIS_UNITS", G%x_axis_units)
 
   ! Note that the dynamic grid always uses symmetric memory for the global
   ! arrays G%gridLatB and G%gridLonB.
@@ -620,7 +603,7 @@ subroutine set_grid_metrics_spherical(G, param_file)
   real :: grid_latT(G%jsd:G%jed), grid_latB(G%JsdB:G%JedB)
   real :: grid_lonT(G%isd:G%ied), grid_lonB(G%IsdB:G%IedB)
   real :: dLon,dLat,latitude,longitude,dL_di
-  character(len=48)  :: mod  = "MOM_grid_init set_grid_metrics_spherical"
+  character(len=48)  :: mdl  = "MOM_grid_init set_grid_metrics_spherical"
 
   is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec
   isd = G%isd ; ied = G%ied ; jsd = G%jsd ; jed = G%jed
@@ -634,19 +617,19 @@ subroutine set_grid_metrics_spherical(G, param_file)
 !  and save them in arrays.
   PI = 4.0*atan(1.0); PI_180 = atan(1.0)/45.
 
-  call get_param(param_file, mod, "SOUTHLAT", G%south_lat, &
+  call get_param(param_file, mdl, "SOUTHLAT", G%south_lat, &
                  "The southern latitude of the domain.", units="degrees", &
                  fail_if_missing=.true.)
-  call get_param(param_file, mod, "LENLAT", G%len_lat, &
+  call get_param(param_file, mdl, "LENLAT", G%len_lat, &
                  "The latitudinal length of the domain.", units="degrees", &
                  fail_if_missing=.true.)
-  call get_param(param_file, mod, "WESTLON", G%west_lon, &
+  call get_param(param_file, mdl, "WESTLON", G%west_lon, &
                  "The western longitude of the domain.", units="degrees", &
                  default=0.0)
-  call get_param(param_file, mod, "LENLON", G%len_lon, &
+  call get_param(param_file, mdl, "LENLON", G%len_lon, &
                  "The longitudinal length of the domain.", units="degrees", &
                  fail_if_missing=.true.)
-  call get_param(param_file, mod, "RAD_EARTH", G%Rad_Earth, &
+  call get_param(param_file, mdl, "RAD_EARTH", G%Rad_Earth, &
                  "The radius of the Earth.", units="m", default=6.378e6)
 
   dLon = G%len_lon/G%Domain%niglobal
@@ -759,7 +742,7 @@ subroutine set_grid_metrics_mercator(G, param_file)
   integer :: I_off, J_off
   type(GPS) :: GP
   character(len=128) :: warnmesg
-  character(len=48)  :: mod = "MOM_grid_init set_grid_metrics_mercator"
+  character(len=48)  :: mdl = "MOM_grid_init set_grid_metrics_mercator"
   real :: PI, PI_2! PI = 3.1415926... as 4*atan(1), PI_2 = (PI) /2.0
 
 
@@ -799,24 +782,24 @@ subroutine set_grid_metrics_mercator(G, param_file)
 !  and save them in arrays.
   PI = 4.0*atan(1.0) ; PI_2 = 0.5*PI
 
-  call get_param(param_file, mod, "SOUTHLAT", GP%south_lat, &
+  call get_param(param_file, mdl, "SOUTHLAT", GP%south_lat, &
                  "The southern latitude of the domain.", units="degrees", &
                  fail_if_missing=.true.)
-  call get_param(param_file, mod, "LENLAT", GP%len_lat, &
+  call get_param(param_file, mdl, "LENLAT", GP%len_lat, &
                  "The latitudinal length of the domain.", units="degrees", &
                  fail_if_missing=.true.)
-  call get_param(param_file, mod, "WESTLON", GP%west_lon, &
+  call get_param(param_file, mdl, "WESTLON", GP%west_lon, &
                  "The western longitude of the domain.", units="degrees", &
                  default=0.0)
-  call get_param(param_file, mod, "LENLON", GP%len_lon, &
+  call get_param(param_file, mdl, "LENLON", GP%len_lon, &
                  "The longitudinal length of the domain.", units="degrees", &
                  fail_if_missing=.true.)
-  call get_param(param_file, mod, "RAD_EARTH", GP%Rad_Earth, &
+  call get_param(param_file, mdl, "RAD_EARTH", GP%Rad_Earth, &
                  "The radius of the Earth.", units="m", default=6.378e6)
   G%south_lat = GP%south_lat ; G%len_lat = GP%len_lat
   G%west_lon = GP%west_lon ; G%len_lon = GP%len_lon
   G%Rad_Earth = GP%Rad_Earth
-  call get_param(param_file, mod, "ISOTROPIC", GP%isotropic, &
+  call get_param(param_file, mdl, "ISOTROPIC", GP%isotropic, &
                  "If true, an isotropic grid on a sphere (also known as \n"//&
                  "a Mercator grid) is used. With an isotropic grid, the \n"//&
                  "meridional extent of the domain (LENLAT), the zonal \n"//&
@@ -825,15 +808,15 @@ subroutine set_grid_metrics_mercator(G, param_file)
                  "extent is determined to fit the zonal extent and the \n"//&
                  "number of grid points, while grid is perfectly isotropic.", &
                  default=.false.)
-  call get_param(param_file, mod, "EQUATOR_REFERENCE", GP%equator_reference, &
+  call get_param(param_file, mdl, "EQUATOR_REFERENCE", GP%equator_reference, &
                  "If true, the grid is defined to have the equator at the \n"//&
                  "nearest q- or h- grid point to (-LOWLAT*NJGLOBAL/LENLAT).", &
                  default=.true.)
-  call get_param(param_file, mod, "LAT_ENHANCE_FACTOR", GP%Lat_enhance_factor, &
+  call get_param(param_file, mdl, "LAT_ENHANCE_FACTOR", GP%Lat_enhance_factor, &
                  "The amount by which the meridional resolution is \n"//&
                  "enhanced within LAT_EQ_ENHANCE of the equator.", &
                  units="nondim", default=1.0)
-  call get_param(param_file, mod, "LAT_EQ_ENHANCE", GP%Lat_eq_enhance, &
+  call get_param(param_file, mdl, "LAT_EQ_ENHANCE", GP%Lat_eq_enhance, &
                  "The latitude range to the north and south of the equator \n"//&
                  "over which the resolution is enhanced.", units="degrees", &
                  default=0.0)
@@ -1297,17 +1280,17 @@ subroutine initialize_masks(G, PF)
 ! mask2dCv, and mask2dBu are all 1.0.
 
   real :: Dmin, min_depth, mask_depth
-  character(len=40)  :: mod = "MOM_grid_init initialize_masks"
+  character(len=40)  :: mdl = "MOM_grid_init initialize_masks"
   integer :: i, j
 
   call callTree_enter("initialize_masks(), MOM_grid_initialize.F90")
-  call get_param(PF, mod, "MINIMUM_DEPTH", min_depth, &
+  call get_param(PF, mdl, "MINIMUM_DEPTH", min_depth, &
                  "If MASKING_DEPTH is unspecified, then anything shallower than\n"//&
                  "MINIMUM_DEPTH is assumed to be land and all fluxes are masked out.\n"//&
                  "If MASKING_DEPTH is specified, then all depths shallower than\n"//&
                  "MINIMUM_DEPTH but deeper than MASKING_DEPTH are rounded to MINIMUM_DEPTH.", &
                  units="m", default=0.0)
-  call get_param(PF, mod, "MASKING_DEPTH", mask_depth, &
+  call get_param(PF, mdl, "MASKING_DEPTH", mask_depth, &
                  "The depth below which to mask points as land points, for which all\n"//&
                  "fluxes are zeroed out. MASKING_DEPTH is ignored if negative.", &
                  units="m", default=-9999.0)

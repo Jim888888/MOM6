@@ -1,23 +1,6 @@
 module user_change_diffusivity
-!***********************************************************************
-!*                   GNU General Public License                        *
-!* This file is a part of MOM.                                         *
-!*                                                                     *
-!* MOM is free software; you can redistribute it and/or modify it and  *
-!* are expected to follow the terms of the GNU General Public License  *
-!* as published by the Free Software Foundation; either version 2 of   *
-!* the License, or (at your option) any later version.                 *
-!*                                                                     *
-!* MOM is distributed in the hope that it will be useful, but WITHOUT  *
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY  *
-!* or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public    *
-!* License for more details.                                           *
-!*                                                                     *
-!* For the full text of the GNU General Public License,                *
-!* write to: Free Software Foundation, Inc.,                           *
-!*           675 Mass Ave, Cambridge, MA 02139, USA.                   *
-!* or see:   http://www.gnu.org/licenses/gpl.html                      *
-!***********************************************************************
+
+! This file is part of MOM6. See LICENSE.md for the license.
 
 use MOM_diag_mediator, only : diag_ctrl, time_type
 use MOM_error_handler, only : MOM_error, is_root_pe, FATAL, WARNING, NOTE
@@ -210,7 +193,7 @@ subroutine user_change_diff_init(Time, G, param_file, diag, CS)
 
 ! This include declares and sets the variable "version".
 #include "version_variable.h"
-  character(len=40)  :: mod = "user_set_diffusivity"  ! This module's name.
+  character(len=40)  :: mdl = "user_set_diffusivity"  ! This module's name.
   character(len=200) :: mesg
   integer :: i, j, is, ie, js, je
 
@@ -226,26 +209,26 @@ subroutine user_change_diff_init(Time, G, param_file, diag, CS)
   CS%diag => diag
 
   ! Read all relevant parameters and write them to the model log.
-  call log_version(param_file, mod, version, "")
-  call get_param(param_file, mod, "USER_KD_ADD", CS%Kd_add, &
+  call log_version(param_file, mdl, version, "")
+  call get_param(param_file, mdl, "USER_KD_ADD", CS%Kd_add, &
                  "A user-specified additional diffusivity over a range of \n"//&
                  "latitude and density.", units="m2 s-1", default=0.0)
   if (CS%Kd_add /= 0.0) then
-    call get_param(param_file, mod, "USER_KD_ADD_LAT_RANGE", CS%lat_range(:), &
+    call get_param(param_file, mdl, "USER_KD_ADD_LAT_RANGE", CS%lat_range(:), &
                  "Four successive values that define a range of latitudes \n"//&
                  "over which the user-specified extra diffusivity is \n"//&
                  "applied.  The four values specify the latitudes at \n"//&
                  "which the extra diffusivity starts to increase from 0, \n"//&
                  "hits its full value, starts to decrease again, and is \n"//&
                  "back to 0.", units="degree", default=-1.0e9)
-    call get_param(param_file, mod, "USER_KD_ADD_RHO_RANGE", CS%rho_range(:), &
+    call get_param(param_file, mdl, "USER_KD_ADD_RHO_RANGE", CS%rho_range(:), &
                  "Four successive values that define a range of potential \n"//&
                  "densities over which the user-given extra diffusivity \n"//&
                  "is applied.  The four values specify the density at \n"//&
                  "which the extra diffusivity starts to increase from 0, \n"//&
                  "hits its full value, starts to decrease again, and is \n"//&
                  "back to 0.", units="kg m-3", default=-1.0e9)
-    call get_param(param_file, mod, "USER_KD_ADD_USE_ABS_LAT", CS%use_abs_lat, &
+    call get_param(param_file, mdl, "USER_KD_ADD_USE_ABS_LAT", CS%use_abs_lat, &
                  "If true, use the absolute value of latitude when \n"//&
                  "checking whether a point fits into range of latitudes.", &
                  default=.false.)

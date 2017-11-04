@@ -18,7 +18,7 @@ The top level directory structure groups source code and input files as follow:
 
 | File/directory    | Purpose |
 | --------------    | ------- |
-| ```LICENSE.md```  | A copy of the Gnu general public license, version 3. |
+| ```LICENSE.md```  | A copy of the Gnu lesser general public license, version 3. |
 | ```README.md```   | This file with basic pointers to more information. |
 | ```src/```        | Contains the source code for MOM6 that is always compiled. |
 | ```config_src/``` | Contains optional source code depending on mode and configuration such as dynamic-memory versus static, ocean-only versus coupled. |
@@ -28,7 +28,7 @@ The top level directory structure groups source code and input files as follow:
 # Disclaimer
 
 The United States Department of Commerce (DOC) GitHub project code is provided
-on an ‘as is’ basis and the user assumes responsibility for its use. DOC has
+on an "as is" basis and the user assumes responsibility for its use. DOC has
 relinquished control of the information and no longer has responsibility to
 protect the integrity, confidentiality, or availability of the information. Any
 claims against the Department of Commerce stemming from the use of its GitHub

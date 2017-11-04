@@ -1,24 +1,7 @@
 module MESO_surface_forcing
-!***********************************************************************
-!*                   GNU General Public License                        *
-!* This file is a part of MOM.                                         *
-!*                                                                     *
-!* MOM is free software; you can redistribute it and/or modify it and  *
-!* are expected to follow the terms of the GNU General Public License  *
-!* as published by the Free Software Foundation; either version 2 of   *
-!* the License, or (at your option) any later version.                 *
-!*                                                                     *
-!* MOM is distributed in the hope that it will be useful, but WITHOUT  *
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY  *
-!* or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public    *
-!* License for more details.                                           *
-!*                                                                     *
-!* For the full text of the GNU General Public License,                *
-!* write to: Free Software Foundation, Inc.,                           *
-!*           675 Mass Ave, Cambridge, MA 02139, USA.                   *
-!* or see:   http://www.gnu.org/licenses/gpl.html                      *
-!***********************************************************************
-!
+
+! This file is part of MOM6. See LICENSE.md for the license.
+
 !********+*********+*********+*********+*********+*********+*********+**
 !*                                                                     *
 !*  Rewritten by Robert Hallberg, June 2009                            *
@@ -117,7 +100,7 @@ subroutine MESO_wind_forcing(state, fluxes, day, G, CS)
   type(surface),                 intent(inout) :: state
   type(forcing),                 intent(inout) :: fluxes
   type(time_type),               intent(in)    :: day
-  type(ocean_grid_type),         intent(inout) :: G
+  type(ocean_grid_type),         intent(inout) :: G    !< The ocean's grid structure
   type(MESO_surface_forcing_CS), pointer       :: CS
 
 !   This subroutine sets the surface wind stresses, fluxes%taux and fluxes%tauy.
@@ -178,8 +161,9 @@ subroutine MESO_buoyancy_forcing(state, fluxes, day, dt, G, CS)
   type(surface),                 intent(inout) :: state
   type(forcing),                 intent(inout) :: fluxes
   type(time_type),               intent(in)    :: day
-  real,                          intent(in)    :: dt
-  type(ocean_grid_type),         intent(in)    :: G
+  real,                          intent(in)    :: dt   !< The amount of time over which
+                                                       !! the fluxes apply, in s
+  type(ocean_grid_type),         intent(in)    :: G    !< The ocean's grid structure
   type(MESO_surface_forcing_CS), pointer       :: CS
 
 !    This subroutine specifies the current surface fluxes of buoyancy or
@@ -349,8 +333,8 @@ end subroutine alloc_if_needed
 
 subroutine MESO_surface_forcing_init(Time, G, param_file, diag, CS)
   type(time_type),               intent(in) :: Time
-  type(ocean_grid_type),         intent(in) :: G
-  type(param_file_type),         intent(in) :: param_file
+  type(ocean_grid_type),         intent(in) :: G    !< The ocean's grid structure
+  type(param_file_type),         intent(in) :: param_file !< A structure to parse for run-time parameters
   type(diag_ctrl), target,       intent(in) :: diag
   type(MESO_surface_forcing_CS), pointer    :: CS
 ! Arguments: Time - The current model time.
@@ -363,7 +347,7 @@ subroutine MESO_surface_forcing_init(Time, G, param_file, diag, CS)
 
 ! This include declares and sets the variable "version".
 #include "version_variable.h"
-  character(len=40)  :: mod = "MESO_surface_forcing" ! This module's name.
+  character(len=40)  :: mdl = "MESO_surface_forcing" ! This module's name.
 
   if (associated(CS)) then
     call MOM_error(WARNING, "MESO_surface_forcing_init called with an associated "// &
@@ -374,31 +358,31 @@ subroutine MESO_surface_forcing_init(Time, G, param_file, diag, CS)
   CS%diag => diag
 
   ! Read all relevant parameters and write them to the model log.
-  call log_version(param_file, mod, version, "")
-  call get_param(param_file, mod, "ENABLE_THERMODYNAMICS", CS%use_temperature, &
+  call log_version(param_file, mdl, version, "")
+  call get_param(param_file, mdl, "ENABLE_THERMODYNAMICS", CS%use_temperature, &
                  "If true, Temperature and salinity are used as state \n"//&
                  "variables.", default=.true.)
 
-  call get_param(param_file, mod, "G_EARTH", CS%G_Earth, &
+  call get_param(param_file, mdl, "G_EARTH", CS%G_Earth, &
                  "The gravitational acceleration of the Earth.", &
                  units="m s-2", default = 9.80)
-  call get_param(param_file, mod, "RHO_0", CS%Rho0, &
+  call get_param(param_file, mdl, "RHO_0", CS%Rho0, &
                  "The mean ocean density used with BOUSSINESQ true to \n"//&
                  "calculate accelerations and the mass for conservation \n"//&
                  "properties, or with BOUSSINSEQ false to convert some \n"//&
                  "parameters from vertical units of m to kg m-2.", &
                  units="kg m-3", default=1035.0)
-  call get_param(param_file, mod, "GUST_CONST", CS%gust_const, &
+  call get_param(param_file, mdl, "GUST_CONST", CS%gust_const, &
                  "The background gustiness in the winds.", units="Pa", &
                  default=0.02)
 
-  call get_param(param_file, mod, "RESTOREBUOY", CS%restorebuoy, &
+  call get_param(param_file, mdl, "RESTOREBUOY", CS%restorebuoy, &
                  "If true, the buoyancy fluxes drive the model back \n"//&
                  "toward some specified surface state with a rate \n"//&
                  "given by FLUXCONST.", default= .false.)
 
   if (CS%restorebuoy) then
-    call get_param(param_file, mod, "FLUXCONST", CS%Flux_const, &
+    call get_param(param_file, mdl, "FLUXCONST", CS%Flux_const, &
                  "The constant that relates the restoring surface fluxes \n"//&
                  "to the relative surface anomalies (akin to a piston \n"//&
                  "velocity).  Note the non-MKS units.", units="m day-1", &
@@ -406,22 +390,22 @@ subroutine MESO_surface_forcing_init(Time, G, param_file, diag, CS)
     ! Convert CS%Flux_const from m day-1 to m s-1.
     CS%Flux_const = CS%Flux_const / 86400.0
 
-    call get_param(param_file, mod, "SSTRESTORE_FILE", CS%SSTrestore_file, &
+    call get_param(param_file, mdl, "SSTRESTORE_FILE", CS%SSTrestore_file, &
                  "The file with the SST toward which to restore in \n"//&
                  "variable TEMP.", fail_if_missing=.true.)
-    call get_param(param_file, mod, "SALINITYRESTORE_FILE", CS%salinityrestore_file, &
+    call get_param(param_file, mdl, "SALINITYRESTORE_FILE", CS%salinityrestore_file, &
                  "The file with the surface salinity toward which to \n"//&
                  "restore in variable SALT.", fail_if_missing=.true.)
-    call get_param(param_file, mod, "SENSIBLEHEAT_FILE", CS%heating_file, &
+    call get_param(param_file, mdl, "SENSIBLEHEAT_FILE", CS%heating_file, &
                  "The file with the non-shortwave heat flux in \n"//&
                  "variable Heat.", fail_if_missing=.true.)
-    call get_param(param_file, mod, "PRECIP_FILE", CS%PmE_file, &
+    call get_param(param_file, mdl, "PRECIP_FILE", CS%PmE_file, &
                  "The file with the net precipiation minus evaporation \n"//&
                  "in variable PmE.", fail_if_missing=.true.)
-    call get_param(param_file, mod, "SHORTWAVE_FILE", CS%Solar_file, &
+    call get_param(param_file, mdl, "SHORTWAVE_FILE", CS%Solar_file, &
                  "The file with the shortwave heat flux in \n"//&
                  "variable NET_SOL.", fail_if_missing=.true.)
-    call get_param(param_file, mod, "INPUTDIR", CS%inputdir, default=".")
+    call get_param(param_file, mdl, "INPUTDIR", CS%inputdir, default=".")
     CS%inputdir = slasher(CS%inputdir)
 
    endif

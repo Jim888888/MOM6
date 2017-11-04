@@ -1,6 +1,6 @@
 !> Implements vertical viscosity (vertvisc)
-
 module MOM_vert_friction
+
 ! This file is part of MOM6. See LICENSE.md for the license.
 
 use MOM_diag_mediator, only : post_data, register_diag_field, safe_alloc_ptr
@@ -555,6 +555,7 @@ subroutine vertvisc_coef(u, v, h, fluxes, visc, dt, G, GV, CS, OBC)
     h_harm, &   ! Harmonic mean of the thicknesses around a velocity grid point,
                 ! given by 2*(h+ * h-)/(h+ + h-), in m or kg m-2 (H for short).
     h_arith, &  ! The arithmetic mean thickness, in m or kg m-2.
+    h_delta, &  ! The lateral difference of thickness, in m or kg m-2.
     hvel, &     ! hvel is the thickness used at a velocity grid point, in H.
     hvel_shelf  ! The equivalent of hvel under shelves, in H.
   real, dimension(SZIB_(G),SZK_(G)+1) :: &
@@ -631,7 +632,7 @@ subroutine vertvisc_coef(u, v, h, fluxes, visc, dt, G, GV, CS, OBC)
 !$OMP parallel do default(none) shared(G,GV,CS,visc,Isq,ieq,nz,u,h,fluxes,hML_u, &
 !$OMP                                  OBC,h_neglect,dt,m_to_H,I_valBL) &
 !$OMP                     firstprivate(i_hbbl)                                             &
-!$OMP                          private(do_i,kv_bbl,bbl_thick,z_i,h_harm,h_arith,hvel,z2,   &
+!$OMP                          private(do_i,kv_bbl,bbl_thick,z_i,h_harm,h_arith,h_delta,hvel,z2,   &
 !$OMP                                  botfn,zh,Dmin,zcol,a,do_any_shelf,do_i_shelf,zi_dir, &
 !$OMP                                  a_shelf,Ztop_min,I_HTbl,hvel_shelf,topfn,h_ml,z2_wt,z_clear)
   do j=G%Jsc,G%Jec
@@ -646,6 +647,7 @@ subroutine vertvisc_coef(u, v, h, fluxes, visc, dt, G, GV, CS, OBC)
     do k=1,nz ; do I=Isq,Ieq ; if (do_i(I)) then
       h_harm(I,k) = 2.0*h(i,j,k)*h(i+1,j,k) / (h(i,j,k)+h(i+1,j,k)+h_neglect)
       h_arith(I,k) = 0.5*(h(i+1,j,k)+h(i,j,k))
+      h_delta(I,k) = h(i+1,j,k) - h(i,j,k)
     endif ; enddo ; enddo
     do I=Isq,Ieq
       Dmin(I) = min(G%bathyT(i,j), G%bathyT(i+1,j)) * m_to_H
@@ -656,11 +658,11 @@ subroutine vertvisc_coef(u, v, h, fluxes, visc, dt, G, GV, CS, OBC)
     if (associated(OBC)) then ; if (OBC%number_of_segments > 0) then
       do I=Isq,Ieq ; if (do_i(I) .and. (OBC%segnum_u(I,j) /= OBC_NONE)) then
         if (OBC%segment(OBC%segnum_u(I,j))%direction == OBC_DIRECTION_E) then
-          do k=1,nz ; h_harm(I,k) = h(i,j,k) ; h_arith(I,k) = h(i,j,k) ; enddo
+          do k=1,nz ; h_harm(I,k) = h(i,j,k) ; h_arith(I,k) = h(i,j,k) ; h_delta(I,k) = 0. ; enddo
           Dmin(I) = G%bathyT(i,j) * m_to_H
           zi_dir(I) = -1
         elseif (OBC%segment(OBC%segnum_u(I,j))%direction == OBC_DIRECTION_W) then
-          do k=1,nz ; h_harm(I,k) = h(i+1,j,k) ; h_arith(I,k) = h(i+1,j,k) ; enddo
+          do k=1,nz ; h_harm(I,k) = h(i+1,j,k) ; h_arith(I,k) = h(i+1,j,k) ; h_delta(I,k) = 0. ; enddo
           Dmin(I) = G%bathyT(i+1,j) * m_to_H
           zi_dir(I) = 1
         endif
@@ -676,7 +678,7 @@ subroutine vertvisc_coef(u, v, h, fluxes, visc, dt, G, GV, CS, OBC)
       do I=Isq,Ieq ; z_i(I,nz+1) = 0.0 ; enddo
       do k=nz,1,-1 ; do I=Isq,Ieq ; if (do_i(I)) then
         hvel(I,k) = h_harm(I,k)
-        if (u(I,j,k) * (h(i+1,j,k)-h(i,j,k)) < 0) then
+        if (u(I,j,k) * h_delta(I,k) < 0) then
           z2 = z_i(I,k+1) ; botfn = 1.0 / (1.0 + 0.09*z2*z2*z2*z2*z2*z2)
           hvel(I,k) = (1.0-botfn)*h_harm(I,k) + botfn*h_arith(I,k)
         endif
@@ -697,7 +699,7 @@ subroutine vertvisc_coef(u, v, h, fluxes, visc, dt, G, GV, CS, OBC)
           z_i(I,k) = max(zh(I), z_clear) * I_Hbbl(I)
 
           hvel(I,k) = h_arith(I,k)
-          if (u(I,j,k) * (h(i+1,j,k)-h(i,j,k)) > 0) then
+          if (u(I,j,k) * h_delta(I,k) > 0) then
             if (zh(I) * I_Hbbl(I) < CS%harm_BL_val) then
               hvel(I,k) = h_harm(I,k)
             else
@@ -743,7 +745,7 @@ subroutine vertvisc_coef(u, v, h, fluxes, visc, dt, G, GV, CS, OBC)
               zh(I) = zh(I) + h_harm(I,k)
 
               hvel_shelf(I,k) = hvel(I,k)
-              if (u(I,j,k) * (h(i+1,j,k)-h(i,j,k)) > 0) then
+              if (u(I,j,k) * h_delta(I,k) > 0) then
                 if (zh(I) * I_HTbl(I) < CS%harm_BL_val) then
                   hvel_shelf(I,k) = min(hvel(I,k), h_harm(I,k))
                 else
@@ -793,7 +795,7 @@ subroutine vertvisc_coef(u, v, h, fluxes, visc, dt, G, GV, CS, OBC)
 !$OMP parallel do default(none) shared(G,GV,CS,visc,is,ie,Jsq,Jeq,nz,v,h,fluxes,hML_v, &
 !$OMP                                  OBC,h_neglect,dt,m_to_H,I_valBL) &
 !$OMP                     firstprivate(i_hbbl)                                                &
-!$OMP                          private(do_i,kv_bbl,bbl_thick,z_i,h_harm,h_arith,hvel,z2,zi_dir, &
+!$OMP                          private(do_i,kv_bbl,bbl_thick,z_i,h_harm,h_arith,h_delta,hvel,z2,zi_dir, &
 !$OMP                                  botfn,zh,Dmin,zcol1,zcol2,a,do_any_shelf,do_i_shelf,  &
 !$OMP                                  a_shelf,Ztop_min,I_HTbl,hvel_shelf,topfn,h_ml,z2_wt,z_clear)
   do J=Jsq,Jeq
@@ -808,6 +810,7 @@ subroutine vertvisc_coef(u, v, h, fluxes, visc, dt, G, GV, CS, OBC)
     do k=1,nz ; do i=is,ie ; if (do_i(i)) then
       h_harm(i,k) = 2.0*h(i,j,k)*h(i,j+1,k) / (h(i,j,k)+h(i,j+1,k)+h_neglect)
       h_arith(i,k) = 0.5*(h(i,j+1,k)+h(i,j,k))
+      h_delta(i,k) = h(i,j+1,k) - h(i,j,k)
     endif ; enddo ; enddo
     do i=is,ie
       Dmin(i) = min(G%bathyT(i,j), G%bathyT(i,j+1)) * m_to_H
@@ -818,11 +821,11 @@ subroutine vertvisc_coef(u, v, h, fluxes, visc, dt, G, GV, CS, OBC)
     if (associated(OBC)) then ; if (OBC%number_of_segments > 0) then
       do i=is,ie ; if (do_i(i) .and. (OBC%segnum_v(i,J) /= OBC_NONE)) then
         if (OBC%segment(OBC%segnum_v(i,J))%direction == OBC_DIRECTION_N) then
-          do k=1,nz ; h_harm(I,k) = h(i,j,k) ; h_arith(I,k) = h(i,j,k) ; enddo
+          do k=1,nz ; h_harm(I,k) = h(i,j,k) ; h_arith(I,k) = h(i,j,k) ; h_delta(i,k) = 0. ; enddo
           Dmin(I) = G%bathyT(i,j) * m_to_H
           zi_dir(I) = -1
         elseif (OBC%segment(OBC%segnum_v(i,J))%direction == OBC_DIRECTION_S) then
-          do k=1,nz ; h_harm(i,k) = h(i,j+1,k) ; h_arith(i,k) = h(i,j+1,k) ; enddo
+          do k=1,nz ; h_harm(i,k) = h(i,j+1,k) ; h_arith(i,k) = h(i,j+1,k) ; h_delta(i,k) = 0. ; enddo
           Dmin(i) = G%bathyT(i,j+1) * m_to_H
           zi_dir(i) = 1
         endif
@@ -839,7 +842,7 @@ subroutine vertvisc_coef(u, v, h, fluxes, visc, dt, G, GV, CS, OBC)
 
       do k=nz,1,-1 ; do i=is,ie ; if (do_i(i)) then
         hvel(i,k) = h_harm(i,k)
-        if (v(i,J,k) * (h(i,j+1,k)-h(i,j,k)) < 0) then
+        if (v(i,J,k) * h_delta(i,k) < 0) then
           z2 = z_i(i,k+1) ; botfn = 1.0 / (1.0 + 0.09*z2*z2*z2*z2*z2*z2)
           hvel(i,k) = (1.0-botfn)*h_harm(i,k) + botfn*h_arith(i,k)
         endif
@@ -862,7 +865,7 @@ subroutine vertvisc_coef(u, v, h, fluxes, visc, dt, G, GV, CS, OBC)
         z_i(I,k) = max(zh(i), z_clear) * I_Hbbl(i)
 
         hvel(i,k) = h_arith(i,k)
-        if (v(i,J,k) * (h(i,j+1,k)-h(i,j,k)) > 0) then
+        if (v(i,J,k) * h_delta(i,k) > 0) then
           if (zh(i) * I_Hbbl(i) < CS%harm_BL_val) then
             hvel(i,k) = h_harm(i,k)
           else
@@ -906,7 +909,7 @@ subroutine vertvisc_coef(u, v, h, fluxes, visc, dt, G, GV, CS, OBC)
               zh(i) = zh(i) + h_harm(i,k)
 
               hvel_shelf(i,k) = hvel(i,k)
-              if (v(i,j,k) * (h(i,j+1,k)-h(i,j,k)) > 0) then
+              if (v(i,J,k) * h_delta(i,k) > 0) then
                 if (zh(i) * I_HTbl(i) < CS%harm_BL_val) then
                   hvel_shelf(i,k) = min(hvel(i,k), h_harm(i,k))
                 else
@@ -950,15 +953,14 @@ subroutine vertvisc_coef(u, v, h, fluxes, visc, dt, G, GV, CS, OBC)
     endif
   enddo ! end of v-point j loop
 
-
   if (CS%debug) then
-    call uvchksum("vertvisc_coef h_[uv]", CS%h_u*H_to_m, &
-                  CS%h_v*H_to_m, G%HI,haloshift=0)
+    call uvchksum("vertvisc_coef h_[uv]", CS%h_u, &
+                  CS%h_v, G%HI,haloshift=0, scale=GV%H_to_m)
     call uvchksum("vertvisc_coef a_[uv]", CS%a_u, &
-                  CS%a_v, G%HI,haloshift=0)
+                  CS%a_v, G%HI, haloshift=0)
     if (allocated(hML_u) .and. allocated(hML_v)) &
-        call uvchksum("vertvisc_coef hML_[uv]", hML_u*H_to_m, &
-                      hML_v*H_to_m, G%HI,haloshift=0)
+      call uvchksum("vertvisc_coef hML_[uv]", hML_u, hML_v, &
+                    G%HI, haloshift=0, scale=GV%H_to_m)
   endif
 
 ! Offer diagnostic fields for averaging.
@@ -1475,7 +1477,7 @@ subroutine vertvisc_init(MIS, Time, G, GV, param_file, diag, ADp, dirs, &
   integer :: isd, ied, jsd, jed, IsdB, IedB, JsdB, JedB, nz
 ! This include declares and sets the variable "version".
 #include "version_variable.h"
-  character(len=40)  :: mod = "MOM_vert_friction" ! This module's name.
+  character(len=40)  :: mdl = "MOM_vert_friction" ! This module's name.
   character(len=40)  :: thickness_units = "meters or kg m-2"
 
   if (associated(CS)) then
@@ -1491,106 +1493,106 @@ subroutine vertvisc_init(MIS, Time, G, GV, param_file, diag, ADp, dirs, &
   CS%diag => diag ; CS%ntrunc => ntrunc ; ntrunc = 0
 
 ! Default, read and log parameters
-  call log_version(param_file, mod, version, "")
-  call get_param(param_file, mod, "BOTTOMDRAGLAW", CS%bottomdraglaw, &
+  call log_version(param_file, mdl, version, "")
+  call get_param(param_file, mdl, "BOTTOMDRAGLAW", CS%bottomdraglaw, &
                  "If true, the bottom stress is calculated with a drag \n"//&
                  "law of the form c_drag*|u|*u. The velocity magnitude \n"//&
                  "may be an assumed value or it may be based on the \n"//&
                  "actual velocity in the bottommost HBBL, depending on \n"//&
                  "LINEAR_DRAG.", default=.true.)
-  call get_param(param_file, mod, "CHANNEL_DRAG", CS%Channel_drag, &
+  call get_param(param_file, mdl, "CHANNEL_DRAG", CS%Channel_drag, &
                  "If true, the bottom drag is exerted directly on each \n"//&
                  "layer proportional to the fraction of the bottom it \n"//&
                  "overlies.", default=.false.)
-  call get_param(param_file, mod, "DIRECT_STRESS", CS%direct_stress, &
+  call get_param(param_file, mdl, "DIRECT_STRESS", CS%direct_stress, &
                  "If true, the wind stress is distributed over the \n"//&
                  "topmost HMIX_STRESS of fluid (like in HYCOM), and KVML \n"//&
                  "may be set to a very small value.", default=.false.)
-  call get_param(param_file, mod, "DYNAMIC_VISCOUS_ML", CS%dynamic_viscous_ML, &
+  call get_param(param_file, mdl, "DYNAMIC_VISCOUS_ML", CS%dynamic_viscous_ML, &
                  "If true, use a bulk Richardson number criterion to \n"//&
                  "determine the mixed layer thickness for viscosity.", &
                  default=.false.)
-  call get_param(param_file, mod, "U_TRUNC_FILE", CS%u_trunc_file, &
+  call get_param(param_file, mdl, "U_TRUNC_FILE", CS%u_trunc_file, &
                  "The absolute path to a file into which the accelerations \n"//&
                  "leading to zonal velocity truncations are written.  \n"//&
                  "Undefine this for efficiency if this diagnostic is not \n"//&
                  "needed.", default=" ")
-  call get_param(param_file, mod, "V_TRUNC_FILE", CS%v_trunc_file, &
+  call get_param(param_file, mdl, "V_TRUNC_FILE", CS%v_trunc_file, &
                  "The absolute path to a file into which the accelerations \n"//&
                  "leading to meridional velocity truncations are written. \n"//&
                  "Undefine this for efficiency if this diagnostic is not \n"//&
                  "needed.", default=" ")
-  call get_param(param_file, mod, "HARMONIC_VISC", CS%harmonic_visc, &
+  call get_param(param_file, mdl, "HARMONIC_VISC", CS%harmonic_visc, &
                  "If true, use the harmonic mean thicknesses for \n"//&
                  "calculating the vertical viscosity.", default=.false.)
-  call get_param(param_file, mod, "HARMONIC_BL_SCALE", CS%harm_BL_val, &
+  call get_param(param_file, mdl, "HARMONIC_BL_SCALE", CS%harm_BL_val, &
                  "A scale to determine when water is in the boundary \n"//&
                  "layers based solely on harmonic mean thicknesses for \n"//&
                  "the purpose of determining the extent to which the \n"//&
                  "thicknesses used in the viscosities are upwinded.", &
                  default=0.0, units="nondim")
-  call get_param(param_file, mod, "DEBUG", CS%debug, default=.false.)
+  call get_param(param_file, mdl, "DEBUG", CS%debug, default=.false.)
 
   if (GV%nkml < 1) &
-    call get_param(param_file, mod, "HMIX_FIXED", CS%Hmix, &
+    call get_param(param_file, mdl, "HMIX_FIXED", CS%Hmix, &
                  "The prescribed depth over which the near-surface \n"//&
                  "viscosity and diffusivity are elevated when the bulk \n"//&
                  "mixed layer is not used.", units="m", fail_if_missing=.true.)
   if (CS%direct_stress) then
     if (GV%nkml < 1) then
-      call get_param(param_file, mod, "HMIX_STRESS", CS%Hmix_stress, &
+      call get_param(param_file, mdl, "HMIX_STRESS", CS%Hmix_stress, &
                  "The depth over which the wind stress is applied if \n"//&
                  "DIRECT_STRESS is true.", units="m", default=CS%Hmix)
     else
-      call get_param(param_file, mod, "HMIX_STRESS", CS%Hmix_stress, &
+      call get_param(param_file, mdl, "HMIX_STRESS", CS%Hmix_stress, &
                  "The depth over which the wind stress is applied if \n"//&
                  "DIRECT_STRESS is true.", units="m", fail_if_missing=.true.)
     endif
     if (CS%Hmix_stress <= 0.0) call MOM_error(FATAL, "vertvisc_init: " // &
        "HMIX_STRESS must be set to a positive value if DIRECT_STRESS is true.")
   endif
-  call get_param(param_file, mod, "KV", CS%Kv, &
+  call get_param(param_file, mdl, "KV", CS%Kv, &
                  "The background kinematic viscosity in the interior. \n"//&
                  "The molecular value, ~1e-6 m2 s-1, may be used.", &
                  units="m2 s-1", fail_if_missing=.true.)
 
 ! CS%Kvml = CS%Kv ; CS%Kvbbl = CS%Kv ! Needed? -AJA
-  if (GV%nkml < 1) call get_param(param_file, mod, "KVML", CS%Kvml, &
+  if (GV%nkml < 1) call get_param(param_file, mdl, "KVML", CS%Kvml, &
                  "The kinematic viscosity in the mixed layer.  A typical \n"//&
                  "value is ~1e-2 m2 s-1. KVML is not used if \n"//&
                  "BULKMIXEDLAYER is true.  The default is set by KV.", &
                  units="m2 s-1", default=CS%Kv)
-  if (.not.CS%bottomdraglaw) call get_param(param_file, mod, "KVBBL", CS%Kvbbl, &
+  if (.not.CS%bottomdraglaw) call get_param(param_file, mdl, "KVBBL", CS%Kvbbl, &
                  "The kinematic viscosity in the benthic boundary layer. \n"//&
                  "A typical value is ~1e-2 m2 s-1. KVBBL is not used if \n"//&
                  "BOTTOMDRAGLAW is true.  The default is set by KV.", &
                  units="m2 s-1", default=CS%Kv)
-  call get_param(param_file, mod, "HBBL", CS%Hbbl, &
+  call get_param(param_file, mdl, "HBBL", CS%Hbbl, &
                  "The thickness of a bottom boundary layer with a \n"//&
                  "viscosity of KVBBL if BOTTOMDRAGLAW is not defined, or \n"//&
                  "the thickness over which near-bottom velocities are \n"//&
                  "averaged for the drag law if BOTTOMDRAGLAW is defined \n"//&
                  "but LINEAR_DRAG is not.", units="m", fail_if_missing=.true.)
-  call get_param(param_file, mod, "MAXVEL", CS%maxvel, &
+  call get_param(param_file, mdl, "MAXVEL", CS%maxvel, &
                  "The maximum velocity allowed before the velocity \n"//&
                  "components are truncated.", units="m s-1", default=3.0e8)
-  call get_param(param_file, mod, "CFL_BASED_TRUNCATIONS", CS%CFL_based_trunc, &
+  call get_param(param_file, mdl, "CFL_BASED_TRUNCATIONS", CS%CFL_based_trunc, &
                  "If true, base truncations on the CFL number, and not an \n"//&
                  "absolute speed.", default=.true.)
-  call get_param(param_file, mod, "CFL_TRUNCATE", CS%CFL_trunc, &
+  call get_param(param_file, mdl, "CFL_TRUNCATE", CS%CFL_trunc, &
                  "The value of the CFL number that will cause velocity \n"//&
                  "components to be truncated; instability can occur past 0.5.", &
                  units="nondim", default=0.5)
-  call get_param(param_file, mod, "CFL_REPORT", CS%CFL_report, &
+  call get_param(param_file, mdl, "CFL_REPORT", CS%CFL_report, &
                  "The value of the CFL number that causes accelerations \n"//&
                  "to be reported; the default is CFL_TRUNCATE.", &
                  units="nondim", default=CS%CFL_trunc)
-  call get_param(param_file, mod, "CFL_TRUNCATE_RAMP_TIME", CS%truncRampTime, &
+  call get_param(param_file, mdl, "CFL_TRUNCATE_RAMP_TIME", CS%truncRampTime, &
                  "The time over which the CFL trunction value is ramped\n"//&
                  "up at the beginning of the run.", &
                  units="s", default=0.)
   CS%CFL_truncE = CS%CFL_trunc
-  call get_param(param_file, mod, "CFL_TRUNCATE_START", CS%CFL_truncS, &
+  call get_param(param_file, mdl, "CFL_TRUNCATE_START", CS%CFL_truncS, &
                  "The start value of the truncation CFL number used when\n"//&
                  "ramping up CFL_TRUNC.", &
                  units="nondim", default=0.)

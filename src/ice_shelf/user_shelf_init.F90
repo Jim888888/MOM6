@@ -1,23 +1,6 @@
 module user_shelf_init
-!***********************************************************************
-!*                   GNU General Public License                        *
-!* This file is a part of MOM.                                        *
-!*                                                                     *
-!* MOM is free software; you can redistribute it and/or modify it and *
-!* are expected to follow the terms of the GNU General Public License  *
-!* as published by the Free Software Foundation; either version 2 of   *
-!* the License, or (at your option) any later version.                 *
-!*                                                                     *
-!* MOM is distributed in the hope that it will be useful, but WITHOUT *
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY  *
-!* or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public    *
-!* License for more details.                                           *
-!*                                                                     *
-!* For the full text of the GNU General Public License,                *
-!* write to: Free Software Foundation, Inc.,                           *
-!*           675 Mass Ave, Cambridge, MA 02139, USA.                   *
-!* or see:   http://www.gnu.org/licenses/gpl.html                      *
-!***********************************************************************
+
+! This file is part of MOM6. See LICENSE.md for the license.
 
 !********+*********+*********+*********+*********+*********+*********+**
 !*                                                                     *
@@ -113,10 +96,10 @@ contains
 
 subroutine USER_initialize_shelf_mass(mass_shelf, area_shelf_h, h_shelf, hmask, G, CS, param_file, new_sim)
 
-  type(ocean_grid_type),            intent(in)  :: G
+  type(ocean_grid_type),            intent(in)  :: G    !< The ocean's grid structure
   real, dimension(SZI_(G),SZJ_(G)), intent(out) :: mass_shelf, area_shelf_h, hmask, h_shelf
   type(user_ice_shelf_CS),          pointer     :: CS
-  type(param_file_type),            intent(in)  :: param_file
+  type(param_file_type),            intent(in)  :: param_file !< A structure to parse for run-time parameters
   logical                                       :: new_sim
 
 ! Arguments: mass_shelf - The mass per unit area averaged over the full ocean
@@ -135,7 +118,7 @@ subroutine USER_initialize_shelf_mass(mass_shelf, area_shelf_h, h_shelf, hmask, 
   real :: min_draft  ! The minimum ocean draft of the ice shelf, in m.
   real :: flat_shelf_width ! The range over which the shelf is min_draft thick.
   real :: c1 ! The maximum depths in m.
-  character(len=40) :: mod = "USER_initialize_shelf_mass" ! This subroutine's name.
+  character(len=40) :: mdl = "USER_initialize_shelf_mass" ! This subroutine's name.
   integer :: i, j
 
   ! call MOM_error(FATAL, "USER_shelf_init.F90, USER_set_shelf_mass: " // &
@@ -145,23 +128,23 @@ subroutine USER_initialize_shelf_mass(mass_shelf, area_shelf_h, h_shelf, hmask, 
 
   ! Read all relevant parameters and write them to the model log.
   if (first_call) call write_user_log(param_file)
-  call get_param(param_file, mod, "RHO_0", CS%Rho_ocean, &
+  call get_param(param_file, mdl, "RHO_0", CS%Rho_ocean, &
                  "The mean ocean density used with BOUSSINESQ true to \n"//&
                  "calculate accelerations and the mass for conservation \n"//&
                  "properties, or with BOUSSINSEQ false to convert some \n"//&
                  "parameters from vertical units of m to kg m-2.", &
                  units="kg m-3", default=1035.0)
-  call get_param(param_file, mod, "SHELF_MAX_DRAFT", CS%max_draft, &
+  call get_param(param_file, mdl, "SHELF_MAX_DRAFT", CS%max_draft, &
                  units="m", default=1.0)
-  call get_param(param_file, mod, "SHELF_MIN_DRAFT", CS%min_draft, &
+  call get_param(param_file, mdl, "SHELF_MIN_DRAFT", CS%min_draft, &
                  units="m", default=1.0)
-  call get_param(param_file, mod, "FLAT_SHELF_WIDTH", CS%flat_shelf_width, &
+  call get_param(param_file, mdl, "FLAT_SHELF_WIDTH", CS%flat_shelf_width, &
                  units="axis_units", default=0.0)
-  call get_param(param_file, mod, "SHELF_SLOPE_SCALE", CS%shelf_slope_scale, &
+  call get_param(param_file, mdl, "SHELF_SLOPE_SCALE", CS%shelf_slope_scale, &
                  units="axis_units", default=0.0)
-  call get_param(param_file, mod, "SHELF_EDGE_POS_0", CS%pos_shelf_edge_0, &
+  call get_param(param_file, mdl, "SHELF_EDGE_POS_0", CS%pos_shelf_edge_0, &
                  units="axis_units", default=0.0)
-  call get_param(param_file, mod, "SHELF_SPEED", CS%shelf_speed, &
+  call get_param(param_file, mdl, "SHELF_SPEED", CS%shelf_speed, &
                  units="axis_units day-1", default=0.0)
 
   call USER_update_shelf_mass(mass_shelf, area_shelf_h, h_shelf, hmask, G, CS, set_time(0,0), new_sim)
@@ -170,9 +153,9 @@ subroutine USER_initialize_shelf_mass(mass_shelf, area_shelf_h, h_shelf, hmask, 
 end subroutine USER_initialize_shelf_mass
 
 subroutine USER_init_ice_thickness(h_shelf, area_shelf_h, hmask, G, param_file)
-  type(ocean_grid_type),            intent(in)  :: G
+  type(ocean_grid_type),            intent(in)  :: G    !< The ocean's grid structure
   real, dimension(SZI_(G),SZJ_(G)), intent(out) :: area_shelf_h, hmask, h_shelf
-  type(param_file_type),            intent(in)  :: param_file
+  type(param_file_type),            intent(in)  :: param_file !< A structure to parse for run-time parameters
 
   ! This subroutine initializes the ice shelf thickness.  Currently it does so
   ! calling USER_initialize_shelf_mass, but this can be revised as needed.
@@ -184,7 +167,7 @@ subroutine USER_init_ice_thickness(h_shelf, area_shelf_h, hmask, G, param_file)
 end subroutine USER_init_ice_thickness
 
 subroutine USER_update_shelf_mass(mass_shelf, area_shelf_h, h_shelf, hmask, G, CS, Time, new_sim)
-  type(ocean_grid_type),            intent(in)    :: G
+  type(ocean_grid_type),            intent(in)    :: G    !< The ocean's grid structure
   real, dimension(SZI_(G),SZJ_(G)), intent(inout) :: mass_shelf, area_shelf_h, hmask, h_shelf
   type(user_ice_shelf_CS),          pointer       :: CS
   type(time_type),                  intent(in)    :: Time
@@ -258,13 +241,13 @@ subroutine USER_update_shelf_mass(mass_shelf, area_shelf_h, h_shelf, hmask, G, C
 end subroutine USER_update_shelf_mass
 
 subroutine write_user_log(param_file)
-  type(param_file_type), intent(in) :: param_file
+  type(param_file_type), intent(in) :: param_file !< A structure to parse for run-time parameters
 
   character(len=128) :: version = '$Id: user_shelf_init.F90,v 1.1.2.7 2012/06/19 22:15:52 Robert.Hallberg Exp $'
   character(len=128) :: tagname = '$Name: MOM_ogrp $'
-  character(len=40)  :: mod = "user_shelf_init" ! This module's name.
+  character(len=40)  :: mdl = "user_shelf_init" ! This module's name.
 
-  call log_version(param_file, mod, version, tagname)
+  call log_version(param_file, mdl, version, tagname)
   first_call = .false.
 
 end subroutine write_user_log

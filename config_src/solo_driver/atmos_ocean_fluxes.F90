@@ -1,12 +1,8 @@
+!> A dummy version of atmos_ocean_fluxes_mod module for
+!! use when the vastly larger FMS package is not needed.
 module atmos_ocean_fluxes_mod
-!********+*********+*********+*********+*********+*********+*********+**
-!*                                                                     *
-!*    This file is a part of MOM.  See MOM.F90 for licensing.          *
-!*                                                                     *
-!*    This module is the dummy version of atmos_ocean_fluxes_mod for   *
-!*    use when the GFDL-FMS package is not needed.                     *
-!*                                                                     *
-!********+*********+*********+*********+*********+*********+*********+**
+
+! This file is part of MOM6. See LICENSE.md for the license.
 
 implicit none ; private
 
@@ -16,7 +12,7 @@ contains
 
 function aof_set_coupler_flux(name, flux_type, implementation, atm_tr_index,     &
                               param, flag, ice_restart_file, ocean_restart_file, &
-                              units, caller)  result (coupler_index)
+                              units, caller, verbosity)  result (coupler_index)
 
   character(len=*), intent(in)                          :: name
   character(len=*), intent(in)                          :: flux_type
@@ -28,6 +24,7 @@ function aof_set_coupler_flux(name, flux_type, implementation, atm_tr_index,    
   character(len=*), intent(in), optional                :: ocean_restart_file
   character(len=*), intent(in), optional                :: units
   character(len=*), intent(in), optional                :: caller
+  integer,          intent(in), optional                :: verbosity
 
   ! None of these arguments are used for anything.
 

@@ -1,23 +1,6 @@
 module BFB_initialization
-!***********************************************************************
-!*                   GNU General Public License                        *
-!* This file is a part of MOM.                                         *
-!*                                                                     *
-!* MOM is free software; you can redistribute it and/or modify it and  *
-!* are expected to follow the terms of the GNU General Public License  *
-!* as published by the Free Software Foundation; either version 2 of   *
-!* the License, or (at your option) any later version.                 *
-!*                                                                     *
-!* MOM is distributed in the hope that it will be useful, but WITHOUT  *
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY  *
-!* or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public    *
-!* License for more details.                                           *
-!*                                                                     *
-!* For the full text of the GNU General Public License,                *
-!* write to: Free Software Foundation, Inc.,                           *
-!*           675 Mass Ave, Cambridge, MA 02139, USA.                   *
-!* or see:   http://www.gnu.org/licenses/gpl.html                      *
-!***********************************************************************
+
+! This file is part of MOM6. See LICENSE.md for the license.
 
 !********+*********+*********+*********+*********+*********+*********+**
 !*                                                                     *
@@ -67,19 +50,19 @@ subroutine BFB_set_coord(Rlay, g_prime, GV, param_file, eqn_of_state)
 ! such a way that the temperature of the topmost layer is equal to the SST at the southern edge of the domain. The temperatures are
 ! then converted to densities of the top and bottom layers and linearly interpolated for the intermediate layers.
   real, dimension(NKMEM_), intent(out) :: Rlay, g_prime
-  type(verticalGrid_type), intent(in)  :: GV
-  type(param_file_type),   intent(in)  :: param_file
+  type(verticalGrid_type), intent(in)  :: GV   !< The ocean's vertical grid structure
+  type(param_file_type),   intent(in)  :: param_file !< A structure to parse for run-time parameters
   type(EOS_type),          pointer     :: eqn_of_state
   real                                 :: drho_dt, SST_s, T_bot, rho_top, rho_bot
   integer                              :: k, nz
-  character(len=40)  :: mod = "BFB_set_coord" ! This subroutine's name.
+  character(len=40)  :: mdl = "BFB_set_coord" ! This subroutine's name.
 
-  call get_param(param_file, mod, "DRHO_DT", drho_dt, &
+  call get_param(param_file, mdl, "DRHO_DT", drho_dt, &
           "Rate of change of density with temperature.", &
            units="kg m-3 K-1", default=-0.2)
-  call get_param(param_file, mod, "SST_S", SST_s, &
+  call get_param(param_file, mdl, "SST_S", SST_s, &
           "SST at the suothern edge of the domain.", units="C", default=20.0)
-  call get_param(param_file, mod, "T_BOT", T_bot, &
+  call get_param(param_file, mdl, "T_BOT", T_bot, &
                  "Bottom Temp", units="C", default=5.0)
   rho_top = GV%rho0 + drho_dt*SST_s
   rho_bot = GV%rho0 + drho_dt*T_bot
@@ -106,12 +89,12 @@ end subroutine BFB_set_coord
 subroutine BFB_initialize_sponges_southonly(G, use_temperature, tv, param_file, CSp, h)
 ! This subroutine sets up the sponges for the southern bouundary of the domain. Maximum damping occurs within 2 degrees lat of the
 ! boundary. The damping linearly decreases northward over the next 2 degrees.
-  type(ocean_grid_type), intent(in)                   :: G
+  type(ocean_grid_type), intent(in)                   :: G    !< The ocean's grid structure
   logical,               intent(in)                   :: use_temperature
-  type(thermo_var_ptrs), intent(in)                   :: tv
-  type(param_file_type), intent(in)                   :: param_file
+  type(thermo_var_ptrs), intent(in)                   :: tv   !< A structure pointing to various thermodynamic variables
+  type(param_file_type), intent(in)                   :: param_file !< A structure to parse for run-time parameters
   type(sponge_CS),       pointer                      :: CSp
-  real, dimension(NIMEM_, NJMEM_, NKMEM_), intent(in) :: h
+  real, dimension(NIMEM_, NJMEM_, NKMEM_), intent(in) :: h    !< Layer thicknesses, in H (usually m or kg m-2)
   !call MOM_error(FATAL, &
   ! "BFB_initialization.F90, BFB_initialize_sponges: " // &
   ! "Unmodified user routine called - you must edit the routine to use it")
@@ -122,7 +105,7 @@ subroutine BFB_initialize_sponges_southonly(G, use_temperature, tv, param_file, 
   real :: H0(SZK_(G))
   real :: min_depth
   real :: damp, e_dense, damp_new, slat, wlon, lenlat, lenlon, nlat
-  character(len=40)  :: mod = "BFB_initialize_sponges_southonly" ! This subroutine's name.
+  character(len=40)  :: mdl = "BFB_initialize_sponges_southonly" ! This subroutine's name.
   integer :: i, j, k, is, ie, js, je, isd, ied, jsd, jed, nz
 
   is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec ; nz = G%ke
@@ -136,16 +119,16 @@ subroutine BFB_initialize_sponges_southonly(G, use_temperature, tv, param_file, 
 !  and mask2dT is 1.                                                   !
 
 !   Set up sponges for DOME configuration
-  call get_param(param_file, mod, "MINIMUM_DEPTH", min_depth, &
+  call get_param(param_file, mdl, "MINIMUM_DEPTH", min_depth, &
                  "The minimum depth of the ocean.", units="m", default=0.0)
 
-  call get_param(param_file, mod, "SOUTHLAT", slat, &
+  call get_param(param_file, mdl, "SOUTHLAT", slat, &
                  "The southern latitude of the domain.", units="degrees")
-  call get_param(param_file, mod, "LENLAT", lenlat, &
+  call get_param(param_file, mdl, "LENLAT", lenlat, &
                  "The latitudinal length of the domain.", units="degrees")
-  call get_param(param_file, mod, "WESTLON", wlon, &
+  call get_param(param_file, mdl, "WESTLON", wlon, &
                  "The western longitude of the domain.", units="degrees", default=0.0)
-  call get_param(param_file, mod, "LENLON", lenlon, &
+  call get_param(param_file, mdl, "LENLON", lenlon, &
                  "The longitudinal length of the domain.", units="degrees")
   nlat = slat + lenlat
   do k=1,nz ; H0(k) = -G%max_depth * real(k-1) / real(nz) ; enddo
@@ -201,9 +184,9 @@ subroutine write_BFB_log(param_file)
 
 ! This include declares and sets the variable "version".
 #include "version_variable.h"
-  character(len=40)  :: mod = "BFB_initialization" ! This module's name.
+  character(len=40)  :: mdl = "BFB_initialization" ! This module's name.
 
-  call log_version(param_file, mod, version)
+  call log_version(param_file, mdl, version)
   first_call = .false.
 
 end subroutine write_BFB_log

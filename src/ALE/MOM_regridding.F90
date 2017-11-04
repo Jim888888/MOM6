@@ -479,7 +479,7 @@ subroutine initialize_regridding(CS, GV, max_depth, param_file, mod, coord_mode,
                  "When regridding, this is the minimum layer\n"//&
                  "thickness allowed.", units="m",&
                  default=regriddingDefaultMinThickness )
-    call set_regrid_params(CS, min_thickness=tmpReal)
+    call set_regrid_params(CS, min_thickness=tmpReal*GV%m_to_H)
   else
     call set_regrid_params(CS, min_thickness=0.)
   endif
@@ -690,6 +690,7 @@ subroutine check_grid_def(filename, varname, expected_units, msg, ierr)
   ! Local variables
   character (len=200) :: units, long_name
   integer :: ncid, status, intid, vid
+  integer :: i
 
   ierr = .false.
   status = NF90_OPEN(trim(filename), NF90_NOWRITE, ncid);
@@ -712,6 +713,12 @@ subroutine check_grid_def(filename, varname, expected_units, msg, ierr)
     msg = 'Attribute not found: units'
     return
   endif
+  ! NF90_GET_ATT can return attributes with null characters, which TRIM will not truncate.
+  ! This loop replaces any null characters with a space so that the following check between
+  ! the read units and the expected units will pass
+  do i=1,LEN_TRIM(units)
+    if (units(i:i) == CHAR(0)) units(i:i) = " "
+  enddo
 
   if (trim(units) /= trim(expected_units)) then
     if (trim(expected_units) == "meters") then
@@ -750,7 +757,7 @@ end subroutine end_regridding
 !------------------------------------------------------------------------------
 ! Dispatching regridding routine: regridding & remapping
 !------------------------------------------------------------------------------
-subroutine regridding_main( remapCS, CS, G, GV, h, tv, h_new, dzInterface, frac_shelf_h)
+subroutine regridding_main( remapCS, CS, G, GV, h, tv, h_new, dzInterface, frac_shelf_h, conv_adjust)
 !------------------------------------------------------------------------------
 ! This routine takes care of (1) building a new grid and (2) remapping between
 ! the old grid and the new grid. The creation of the new grid can be based
@@ -778,9 +785,14 @@ subroutine regridding_main( remapCS, CS, G, GV, h, tv, h_new, dzInterface, frac_
   real, dimension(SZI_(G),SZJ_(G), SZK_(GV)), intent(inout) :: h_new  !< New 3D grid consistent with target coordinate
   real, dimension(SZI_(G),SZJ_(G), SZK_(GV)+1), intent(inout) :: dzInterface !< The change in position of each interface
   real, dimension(:,:),                   optional, pointer :: frac_shelf_h !< Fractional ice shelf coverage
+  logical,                          optional, intent(in   ) :: conv_adjust ! If true, do convective adjustment
   ! Local variables
   real :: trickGnuCompiler
   logical :: use_ice_shelf
+  logical :: do_convective_adjustment
+
+  do_convective_adjustment = .true.
+  if (present(conv_adjust)) do_convective_adjustment = conv_adjust
 
   use_ice_shelf = .false.
   if (present(frac_shelf_h)) then
@@ -806,7 +818,7 @@ subroutine regridding_main( remapCS, CS, G, GV, h, tv, h_new, dzInterface, frac_
       call calc_h_new_by_dz(G, GV, h, dzInterface, h_new)
 
     case ( REGRIDDING_RHO )
-      call convective_adjustment(G, GV, h, tv)
+      if (do_convective_adjustment) call convective_adjustment(G, GV, h, tv)
       call build_rho_grid( G, GV, h, tv, dzInterface, remapCS, CS )
       call calc_h_new_by_dz(G, GV, h, dzInterface, h_new)
 
@@ -1126,14 +1138,16 @@ subroutine build_zstar_grid( CS, G, GV, h, dzInterface, frac_shelf_h)
 
       if (ice_shelf) then
         if (frac_shelf_h(i,j) > 0.) then ! under ice shelf
-           call build_zstar_column(CS%zlike_CS, nz, nominalDepth, totalThickness, zNew, &
+          call build_zstar_column(CS%zlike_CS, nz, nominalDepth, totalThickness, zNew, &
                                 z_rigid_top = totalThickness-nominalDepth, &
-                                eta_orig = zOld(1))
+                                eta_orig=zOld(1), zScale=GV%m_to_H)
         else
-           call build_zstar_column(CS%zlike_CS, nz, nominalDepth, totalThickness, zNew)
+          call build_zstar_column(CS%zlike_CS, nz, nominalDepth, totalThickness, &
+                                zNew, zScale=GV%m_to_H)
         endif
       else
-        call build_zstar_column(CS%zlike_CS, nz, nominalDepth, totalThickness, zNew)
+        call build_zstar_column(CS%zlike_CS, nz, nominalDepth, totalThickness, &
+                                zNew, zScale=GV%m_to_H)
       endif
 
       ! Calculate the final change in grid position after blending new and old grids
@@ -1191,6 +1205,11 @@ subroutine build_sigma_grid( CS, G, GV, h, dzInterface )
 
   do i = G%isc-1,G%iec+1
     do j = G%jsc-1,G%jec+1
+
+      if (G%mask2dT(i,j)==0.) then
+        dzInterface(i,j,:) = 0.
+        cycle
+      endif
 
       ! The rest of the model defines grids integrating up from the bottom
       nominalDepth = G%bathyT(i,j)*GV%m_to_H
@@ -1268,6 +1287,9 @@ subroutine build_rho_grid( G, GV, h, tv, dzInterface, remapCS, CS )
   integer :: i, j, k
   real    :: nominalDepth, totalThickness
   real, dimension(SZK_(GV)+1) :: zOld, zNew
+#ifdef __DO_SAFETY_CHECKS__
+  real    :: dh
+#endif
 
   nz = GV%ke
 
@@ -1278,10 +1300,16 @@ subroutine build_rho_grid( G, GV, h, tv, dzInterface, remapCS, CS )
   do j = G%jsc-1,G%jec+1
     do i = G%isc-1,G%iec+1
 
+      if (G%mask2dT(i,j)==0.) then
+        dzInterface(i,j,:) = 0.
+        cycle
+      endif
+
+
       ! Local depth (G%bathyT is positive)
       nominalDepth = G%bathyT(i,j)*GV%m_to_H
 
-      call build_rho_column(CS%rho_CS, remapCS, nz, nominalDepth, h(i, j, :)*GV%H_to_m, &
+      call build_rho_column(CS%rho_CS, remapCS, nz, nominalDepth, h(i, j, :), &
                             tv%T(i, j, :), tv%S(i, j, :), tv%eqn_of_state, zNew)
 
       if (CS%integrate_downward_for_e) then
@@ -1403,10 +1431,10 @@ subroutine build_grid_HyCOM1( G, GV, h, tv, dzInterface, CS )
 end subroutine build_grid_HyCOM1
 
 subroutine build_grid_adaptive(G, GV, h, tv, dzInterface, remapCS, CS)
-  type(ocean_grid_type),                       intent(in)    :: G
-  type(verticalGrid_type),                     intent(in)    :: GV
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),   intent(in)    :: h
-  type(thermo_var_ptrs),                       intent(in)    :: tv
+  type(ocean_grid_type),                       intent(in)    :: G    !< The ocean's grid structure
+  type(verticalGrid_type),                     intent(in)    :: GV   !< The ocean's vertical grid structure
+  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),   intent(in)    :: h    !< Layer thicknesses, in H (usually m or kg m-2)
+  type(thermo_var_ptrs),                       intent(in)    :: tv   !< A structure pointing to various thermodynamic variables
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1), intent(inout) :: dzInterface
   type(remapping_CS),                          intent(in)    :: remapCS
   type(regridding_CS),                         intent(in)    :: CS
@@ -1426,7 +1454,7 @@ subroutine build_grid_adaptive(G, GV, h, tv, dzInterface, remapCS, CS)
   zInt(:,:,1) = 0.
 
   ! work on interior interfaces
-  do K = 2, nz ; do j = G%jsc-1,G%jec+1 ; do i = G%isc-1,G%iec+1
+  do K = 2, nz ; do j = G%jsc-2,G%jec+2 ; do i = G%isc-2,G%iec+2
     tInt(i,j,K) = 0.5 * (tv%T(i,j,k-1) + tv%T(i,j,k))
     sInt(i,j,K) = 0.5 * (tv%S(i,j,k-1) + tv%S(i,j,k))
     zInt(i,j,K) = zInt(i,j,K-1) + h(i,j,k-1) ! zInt in [H]
@@ -1442,7 +1470,7 @@ subroutine build_grid_adaptive(G, GV, h, tv, dzInterface, remapCS, CS)
 
   ! calculate horizontal density derivatives (alpha/beta)
   ! between cells in a 5-point stencil, columnwise
-  do j = G%jsc,G%jec ; do i = G%isc,G%iec
+  do j = G%jsc-1,G%jec+1 ; do i = G%isc-1,G%iec+1
     if (G%mask2dT(i,j) < 0.5) then
       dzInterface(i,j,:) = 0. ! land point, don't move interfaces, and skip
       cycle
@@ -1681,9 +1709,9 @@ subroutine inflate_vanished_layers_old( CS, G, GV, h )
 
   ! Arguments
   type(regridding_CS),                    intent(in)    :: CS
-  type(ocean_grid_type),                  intent(in)    :: G
-  type(verticalGrid_type),                intent(in)    :: GV
-  real, dimension(SZI_(G),SZJ_(G), SZK_(GV)), intent(inout) :: h
+  type(ocean_grid_type),                  intent(in)    :: G    !< The ocean's grid structure
+  type(verticalGrid_type),                intent(in)    :: GV   !< The ocean's vertical grid structure
+  real, dimension(SZI_(G),SZJ_(G), SZK_(GV)), intent(inout) :: h    !< Layer thicknesses, in H (usually m or kg m-2)
 
   ! Local variables
   integer :: i, j, k
@@ -1719,10 +1747,10 @@ subroutine convective_adjustment(G, GV, h, tv)
 !------------------------------------------------------------------------------
 
   ! Arguments
-  type(ocean_grid_type), intent(in)                  :: G
-  type(verticalGrid_type), intent(in)                :: GV
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), intent(inout) :: h
-  type(thermo_var_ptrs), intent(inout)               :: tv
+  type(ocean_grid_type), intent(in)                  :: G    !< The ocean's grid structure
+  type(verticalGrid_type), intent(in)                :: GV   !< The ocean's vertical grid structure
+  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), intent(inout) :: h    !< Layer thicknesses, in H (usually m or kg m-2)
+  type(thermo_var_ptrs), intent(inout)               :: tv   !< A structure pointing to various thermodynamic variables
 
   ! Local variables
   integer   :: i, j, k
@@ -1818,6 +1846,8 @@ subroutine initCoord(CS, coord_mode)
 
   select case (coordinateMode(coord_mode))
   case (REGRIDDING_ZSTAR)
+    call init_coord_zlike(CS%zlike_CS, CS%nk, CS%coordinateResolution)
+  case (REGRIDDING_SIGMA_SHELF_ZSTAR)
     call init_coord_zlike(CS%zlike_CS, CS%nk, CS%coordinateResolution)
   case (REGRIDDING_SIGMA)
     call init_coord_sigma(CS%sigma_CS, CS%nk, CS%coordinateResolution)
@@ -2082,6 +2112,8 @@ subroutine set_regrid_params( CS, boundary_extrapolation, min_thickness, old_gri
 
   select case (CS%regridding_scheme)
   case (REGRIDDING_ZSTAR)
+    if (present(min_thickness)) call set_zlike_params(CS%zlike_CS, min_thickness=min_thickness)
+  case (REGRIDDING_SIGMA_SHELF_ZSTAR)
     if (present(min_thickness)) call set_zlike_params(CS%zlike_CS, min_thickness=min_thickness)
   case (REGRIDDING_SIGMA)
     if (present(min_thickness)) call set_sigma_params(CS%sigma_CS, min_thickness=min_thickness)

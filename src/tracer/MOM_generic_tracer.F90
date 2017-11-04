@@ -1,22 +1,7 @@
-!***********************************************************************
-!*                   GNU General Public License                        *
-!* This file is a part of MOM.                                         *
-!*                                                                     *
-!* MOM is free software; you can redistribute it and/or modify it and  *
-!* are expected to follow the terms of the GNU General Public License  *
-!* as published by the Free Software Foundation; either version 2 of   *
-!* the License, or (at your option) any later version.                 *
-!*                                                                     *
-!* MOM is distributed in the hope that it will be useful, but WITHOUT  *
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY  *
-!* or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public    *
-!* License for more details.                                           *
-!*                                                                     *
-!* For the full text of the GNU General Public License,                *
-!* write to: Free Software Foundation, Inc.,                           *
-!*           675 Mass Ave, Cambridge, MA 02139, USA.                   *
-!* or see:   http://www.gnu.org/licenses/gpl.html                      *
-!***********************************************************************
+module MOM_generic_tracer
+
+! This file is part of MOM6. See LICENSE.md for the license.
+
 !----------------------------------------------------------------
 ! <CONTACT EMAIL="Niki.Zadeh@noaa.gov"> Niki Zadeh
 ! </CONTACT>
@@ -30,8 +15,6 @@
 !----------------------------------------------------------------
 
 #include <MOM_memory.h>
-
-module MOM_generic_tracer
 
 #ifdef _USE_GENERIC_TRACER
 #include <fms_platform.h>
@@ -133,11 +116,11 @@ contains
 
   function register_MOM_generic_tracer(HI, GV, param_file, CS, tr_Reg, restart_CS)
     type(hor_index_type),       intent(in)   :: HI
-    type(verticalGrid_type),    intent(in) :: GV
-    type(param_file_type), intent(in)   :: param_file
-    type(MOM_generic_tracer_CS),   pointer      :: CS
+    type(verticalGrid_type),    intent(in)   :: GV   !< The ocean's vertical grid structure
+    type(param_file_type),      intent(in)   :: param_file !< A structure to parse for run-time parameters
+    type(MOM_generic_tracer_CS), pointer      :: CS
     type(tracer_registry_type), pointer     :: tr_Reg
-    type(MOM_restart_CS),   pointer     :: restart_CS
+    type(MOM_restart_CS),       pointer     :: restart_CS
     ! This subroutine is used to register tracer fields and subroutines
     ! to be used with MOM.
     ! Arguments: G - The ocean's grid structure.
@@ -289,10 +272,10 @@ contains
                                           sponge_CSp, ALE_sponge_CSp,diag_to_Z_CSp)
     logical,                               intent(in) :: restart
     type(time_type), target,               intent(in) :: day
-    type(ocean_grid_type),                 intent(inout) :: G
-    type(verticalGrid_type),               intent(in) :: GV
-    real, dimension(SZI_(G),SZJ_(G),SZK_(G)), intent(in) :: h
-    type(param_file_type),                 intent(in) :: param_file
+    type(ocean_grid_type),                 intent(inout) :: G    !< The ocean's grid structure
+    type(verticalGrid_type),               intent(in)    :: GV   !< The ocean's vertical grid structure
+    real, dimension(SZI_(G),SZJ_(G),SZK_(G)), intent(in) :: h    !< Layer thicknesses, in H (usually m or kg m-2)
+    type(param_file_type),                 intent(in) :: param_file !< A structure to parse for run-time parameters
     type(diag_ctrl),               target, intent(in) :: diag
     type(ocean_OBC_type),                  pointer    :: OBC
     type(MOM_generic_tracer_CS),           pointer    :: CS
@@ -515,14 +498,14 @@ contains
 
   subroutine MOM_generic_tracer_column_physics(h_old, h_new, ea, eb, fluxes, Hml, dt, G, GV, CS, tv, optics, &
         evap_CFL_limit, minimum_forcing_depth)
-    type(ocean_grid_type),                 intent(in) :: G
-    type(verticalGrid_type),               intent(in) :: GV
+    type(ocean_grid_type),                 intent(in) :: G    !< The ocean's grid structure
+    type(verticalGrid_type),               intent(in) :: GV   !< The ocean's vertical grid structure
     real, dimension(SZI_(G),SZJ_(G),SZK_(G)), intent(in) :: h_old, h_new, ea, eb
     type(forcing),                         intent(in) :: fluxes
-    real, dimension(SZI_(G),SZJ_(G)),      intent(in) :: Hml !< Mixed layer depth
-    real,                                  intent(in) :: dt
+    real, dimension(SZI_(G),SZJ_(G)),      intent(in) :: Hml  !< Mixed layer depth
+    real,                                  intent(in) :: dt   !< The amount of time covered by this call, in s
     type(MOM_generic_tracer_CS),           pointer    :: CS
-    type(thermo_var_ptrs),                 intent(in) :: tv
+    type(thermo_var_ptrs),                 intent(in) :: tv   !< A structure pointing to various thermodynamic variables
     type(optics_type),                     intent(in) :: optics
     real,                        optional,intent(in)  :: evap_CFL_limit
     real,                        optional,intent(in)  :: minimum_forcing_depth
@@ -563,7 +546,6 @@ contains
     real :: sosga
 
     real, dimension(G%isd:G%ied,G%jsd:G%jed,G%ke) :: rho_dzt, dzt
-    real, dimension(G%isd:G%ied,G%jsd:G%jed)      :: hblt_depth
     real, dimension(SZI_(G),SZJ_(G),SZK_(G))      :: h_work
     integer :: i, j, k, isc, iec, jsc, jec, nk
 
@@ -621,17 +603,6 @@ contains
       dzt(i,j,k) = GV%H_to_m * h_old(i,j,k)
     enddo; enddo ; enddo !}
 
-
-    ! Boussinesq model
-    hblt_depth(:,:) = GV%H_to_m * GV%Angstrom
-    do j=jsc,jec ; do i=isc,iec ;
-      hblt_depth(i,j) = GV%H_to_m * h_old(i,j,1)
-    enddo; enddo
-    do k=2,GV%nkml ; do j=jsc,jec ; do i=isc,iec
-      hblt_depth(i,j) = hblt_depth(i,j) + GV%H_to_m * h_old(i,j,k)
-    enddo; enddo ; enddo
-
-
     do j=jsc,jec ; do i=isc,iec
        surface_field(i,j) = tv%S(i,j,1)
     enddo ; enddo
@@ -641,7 +612,7 @@ contains
     !Calculate tendencies (i.e., field changes at dt) from the sources / sinks
     !
 
-    call generic_tracer_source(tv%T,tv%S,rho_dzt,dzt,hblt_depth,G%isd,G%jsd,1,Hml,dt,&
+    call generic_tracer_source(tv%T,tv%S,rho_dzt,dzt,Hml,G%isd,G%jsd,1,dt,&
          G%areaT,get_diag_time_end(CS%diag),&
          optics%nbands, optics%max_wavelength_band, optics%sw_pen_band, optics%opacity_band, sosga=sosga)
 
@@ -705,9 +676,9 @@ contains
   ! </SUBROUTINE>
 
   function MOM_generic_tracer_stock(h, stocks, G, GV, CS, names, units, stock_index)
-    type(ocean_grid_type),              intent(in)    :: G
-    type(verticalGrid_type),            intent(in)    :: GV
-    real, dimension(SZI_(G),SZJ_(G),SZK_(G)), intent(in)    :: h
+    type(ocean_grid_type),              intent(in)    :: G    !< The ocean's grid structure
+    type(verticalGrid_type),            intent(in)    :: GV   !< The ocean's vertical grid structure
+    real, dimension(SZI_(G),SZJ_(G),SZK_(G)), intent(in)    :: h    !< Layer thicknesses, in H (usually m or kg m-2)
     real, dimension(:),                 intent(out)   :: stocks
     type(MOM_generic_tracer_CS),        pointer       :: CS
     character(len=*), dimension(:),     intent(out)   :: names
@@ -795,7 +766,7 @@ contains
     logical, dimension(:),              intent(out)   :: got_minmax
     real, dimension(:),                 intent(out)   :: gmin,gmax
     real, dimension(:),                 intent(out)   :: xgmin, ygmin, zgmin, xgmax, ygmax, zgmax
-    type(ocean_grid_type),              intent(in)    :: G
+    type(ocean_grid_type),              intent(in)    :: G    !< The ocean's grid structure
     type(MOM_generic_tracer_CS),       pointer       :: CS
     character(len=*), dimension(:),     intent(out)   :: names
     character(len=*), dimension(:),     intent(out)   :: units
@@ -887,9 +858,9 @@ contains
   ! </SUBROUTINE>
 
   subroutine MOM_generic_tracer_surface_state(state, h, G, CS)
-    type(ocean_grid_type),                 intent(in) :: G
+    type(ocean_grid_type),                 intent(in) :: G    !< The ocean's grid structure
     type(surface),                         intent(inout) :: state
-    real, dimension(SZI_(G),SZJ_(G),SZK_(G)), intent(in) :: h
+    real, dimension(SZI_(G),SZJ_(G),SZK_(G)), intent(in) :: h    !< Layer thicknesses, in H (usually m or kg m-2)
     type(MOM_generic_tracer_CS),           pointer    :: CS
     !   This subroutine sets up the fields that the coupler needs to calculate the
     ! CFC fluxes between the ocean and atmosphere.
@@ -935,7 +906,8 @@ contains
   end subroutine MOM_generic_tracer_surface_state
 
 !ALL PE subroutine on Ocean!  Due to otpm design the fluxes should be initialized like this on ALL PE's!
-  subroutine MOM_generic_flux_init
+  subroutine MOM_generic_flux_init(verbosity)
+    integer, intent(in), optional :: verbosity  !< A 0-9 integer indicating a level of verbosity.
 
     integer :: ind
     character(len=fm_string_len)   :: g_tracer_name,longname, package,units,old_package,file_in,file_out
@@ -957,7 +929,7 @@ contains
     g_tracer=>g_tracer_list
     do
 
-       call g_tracer_flux_init(g_tracer)
+       call g_tracer_flux_init(g_tracer) !, verbosity=verbosity) !### Add this after ocean shared is updated.
 
        !traverse the linked list till hit NULL
        call g_tracer_get_next(g_tracer, g_tracer_next)

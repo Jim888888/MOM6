@@ -1,23 +1,6 @@
 module MOM_legacy_barotropic
-!***********************************************************************
-!*                   GNU General Public License                        *
-!* This file is a part of MOM.                                         *
-!*                                                                     *
-!* MOM is free software; you can redistribute it and/or modify it and  *
-!* are expected to follow the terms of the GNU General Public License  *
-!* as published by the Free Software Foundation; either version 2 of   *
-!* the License, or (at your option) any later version.                 *
-!*                                                                     *
-!* MOM is distributed in the hope that it will be useful, but WITHOUT  *
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY  *
-!* or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public    *
-!* License for more details.                                           *
-!*                                                                     *
-!* For the full text of the GNU General Public License,                *
-!* write to: Free Software Foundation, Inc.,                           *
-!*           675 Mass Ave, Cambridge, MA 02139, USA.                   *
-!* or see:   http://www.gnu.org/licenses/gpl.html                      *
-!***********************************************************************
+
+! This file is part of MOM6. See LICENSE.md for the license.
 
 !********+*********+*********+*********+*********+*********+*********+**
 !*                                                                     *
@@ -390,38 +373,102 @@ subroutine legacy_btstep(use_fluxes, U_in, V_in, eta_in, dt, bc_accel_u, bc_acce
                   visc_rem_u, visc_rem_v, etaav, uhbt_out, vhbt_out, OBC, &
                   BT_cont, eta_PF_start, &
                   taux_bot, tauy_bot, uh0, vh0, u_uh0, v_vh0)
-  type(ocean_grid_type),                   intent(inout) :: G
-  type(verticalGrid_type),                 intent(in)    :: GV
-  logical,                                 intent(in)    :: use_fluxes
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), intent(in)  :: U_in
-  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), intent(in)  :: V_in
-  real, dimension(SZI_(G),SZJ_(G)),        intent(in)    :: eta_in
-  real,                                    intent(in)    :: dt
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), intent(in)  :: bc_accel_u
-  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), intent(in)  :: bc_accel_v
-  type(forcing),                           intent(in)    :: fluxes
-  real, dimension(SZI_(G),SZJ_(G),SZK_(G)), intent(in)   :: pbce
-  real, dimension(SZI_(G),SZJ_(G)),        intent(in)    :: eta_PF_in
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), intent(in)  :: U_Cor
-  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), intent(in)  :: V_Cor
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), intent(out) :: accel_layer_u
-  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), intent(out) :: accel_layer_v
-  real, dimension(SZI_(G),SZJ_(G)),        intent(inout) :: eta_out
-  real, dimension(SZIB_(G),SZJ_(G)),       intent(out)   :: uhbtav
-  real, dimension(SZI_(G),SZJB_(G)),       intent(out)   :: vhbtav
-  type(legacy_barotropic_CS),              pointer       :: CS
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), intent(in), optional :: visc_rem_u
-  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), intent(in), optional :: visc_rem_v
-  real, dimension(SZI_(G),SZJ_(G)),    intent(out), optional :: etaav
-  real, dimension(SZIB_(G),SZJ_(G)),   intent(out), optional :: uhbt_out
-  real, dimension(SZI_(G),SZJB_(G)),   intent(out), optional :: vhbt_out
-  type(ocean_OBC_type),                pointer,     optional :: OBC
-  type(BT_cont_type),                  pointer,     optional :: BT_cont
-  real, dimension(:,:),                pointer,     optional :: eta_PF_start
-  real, dimension(:,:),                pointer,     optional :: taux_bot
-  real, dimension(:,:),                pointer,     optional :: tauy_bot
-  real, dimension(:,:,:),              pointer,     optional :: uh0, u_uh0
-  real, dimension(:,:,:),              pointer,     optional :: vh0, v_vh0
+  type(ocean_grid_type),      intent(inout) :: G          !< The ocean's grid structure.
+  type(verticalGrid_type),    intent(in)    :: GV         !< The ocean's vertical grid structure.
+  logical,                    intent(in)    :: use_fluxes !< A logical indicating whether velocities
+                        !! (false) or fluxes (true) are used to initialize the barotropic velocities.
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), &
+                              intent(in)    :: U_in       !< The initial (3-D) zonal velocity or
+                     !! volume or mass fluxes,depending on flux_form, in m s-1 or m3 s-1 or kg s-1.
+  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), &
+                              intent(in)    :: V_in       !< The initial (3-D) meridional velocity
+                     !! or volume/mass fluxes, depending on flux_form, in m s-1 or m3 s-1 or kg s-1.
+  real, dimension(SZI_(G),SZJ_(G)),          &
+                              intent(in)    :: eta_in     !< The initial barotropic free surface
+                                        !! height anomaly or column mass anomaly, in m or kg m-2.
+  real,                                      &
+                              intent(in)    :: dt         !< The time increment over which to
+                                                          !! integrate, in s.
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), &
+                              intent(in)    :: bc_accel_u !< The zonal baroclinic accelerations,
+                                                          !! in m s-2.
+  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), &
+                              intent(in)    :: bc_accel_v !< The meridional baroclinic
+                                                          !! accelerations, in m s-2.
+  type(forcing),              intent(in)    :: fluxes     !< A structure containing pointers to any
+                                         !! possible forcing fields.  Unused fields have NULL ptrs.
+  real, dimension(SZI_(G),SZJ_(G),SZK_(G)),  &
+                              intent(in)    :: pbce       !< The baroclinic pressure anomaly in each
+                                       !! layer due to free surface height anomalies, in m2 H-1 s-2.
+  real, dimension(SZI_(G),SZJ_(G)),          &
+                              intent(in)    :: eta_PF_in  !< The 2-D eta field (either SSH anomaly
+   !! or column mass anomaly) that was used to calculate the input pressure gradient accelerations
+   !! (or its final value if eta_PF_start is provided, in m or kg m-2.
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), &
+                              intent(in)    :: U_Cor      !< The (3-D) zonal- and meridional-
+                        !! velocities or volume or mass fluxes used to calculate the Coriolis
+                        !! terms in bc_accel_u and!! bc_accel_v, in m s-1 or m3 s-1 or kg s-1.
+  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), &
+                              intent(in)    :: V_Cor      !< The (3-D) zonal- and meridional-
+                        !! velocities or volume or mass fluxes used to calculate the Coriolis
+                        !! terms in bc_accel_u and bc_accel_v, in m s-1 or m3 s-1 or kg s-1.
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), &
+                              intent(out)   :: accel_layer_u !< The accelerations of each layer
+                                                 !! due to the barotropic calculation, in m s-2.
+  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), &
+                              intent(out)   :: accel_layer_v !< The accelerations of each layer
+                                                 !! due to the barotropic calculation, in m s-2.
+  real, dimension(SZI_(G),SZJ_(G)),          &
+                              intent(inout) :: eta_out    !< The final barotropic free surface
+                                       !! height anomaly or column mass anomaly, in m or kg m-2.
+  real, dimension(SZIB_(G),SZJ_(G)),         &
+                              intent(out)   :: uhbtav     !< The barotropic zonal volume or mass
+                           !! fluxes averaged through the barotropic steps, in m3 s-1 or kg s-1.
+  real, dimension(SZI_(G),SZJB_(G)),         &
+                              intent(out)   :: vhbtav     !< The barotropic meridional volume or
+                       !! mass fluxes averaged through the barotropic steps, in m3 s-1 or kg s-1.
+  type(legacy_barotropic_CS), pointer       :: CS         !< The control structure returned by a
+                                                          !! previous call to barotropic_init.
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), &
+                  intent(in), optional      :: visc_rem_u !< Both the fraction of the momentum
+        !! originally in a layer that remains after a time-step of viscosity, and the fraction
+        !! of a time-step's worth of a barotropic acceleration that a layer experiences after
+        !! viscosity is applied, in the zonal (_u) and meridional (_v) directions.
+        !! Nondimensional between 0 (at the bottom) and 1 (far above the bottom).
+  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), &
+                  intent(in), optional      :: visc_rem_v !< Both the fraction of the momentum
+        !! originally in a layer that remains after a time-step of viscosity, and the fraction
+        !! of a time-step's worth of a barotropic acceleration that a layer experiences after
+        !! viscosity is applied, in the zonal (_u) and meridional (_v) directions.
+        !! Nondimensional between 0 (at the bottom) and 1 (far above the bottom).
+  real, dimension(SZI_(G),SZJ_(G)),          &
+                 intent(out), optional      :: etaav      !< The free surface height or column mass
+                                       !! averaged over the barotropic integration, in m or kg m-2.
+  real, dimension(SZIB_(G),SZJ_(G)),         &
+                 intent(out), optional      :: uhbt_out   !< The barotropic zonal volume or mass
+                           !! fluxes averaged through the barotropic steps, in m3 s-1 or kg s-1.
+  real, dimension(SZI_(G),SZJB_(G)),         &
+                 intent(out), optional      :: vhbt_out   !< The barotropic meridional volume or
+                      !! mass fluxes averaged through the barotropic steps, in m3 s-1 or kg s-1.
+  type(ocean_OBC_type),                      &
+                 pointer,     optional      :: OBC        !< An open boundary condition type, which
+                                   !! contains the values associated with open boundary conditions.
+  type(BT_cont_type),                        &
+                 pointer,     optional      :: BT_cont    !< A structure with elements that describe
+                                  !! the effective open face areas as a function of barotropic flow.
+  real, dimension(:,:),                      &
+                 pointer,     optional      :: eta_PF_start !< The eta field consistent with the
+                   !! pressure gradient at the start of the barotropic stepping, in m or kg m-2.
+  real, dimension(:,:),                      &
+                 pointer,     optional      :: taux_bot   !< The zonal bottom frictional stress
+                                                          !! from ocean to the seafloor, in Pa.
+  real, dimension(:,:),                      &
+                 pointer,     optional      :: tauy_bot   !< The meridional bottom frictional stress
+                                                          !! from ocean to the seafloor, in Pa.
+  real, dimension(:,:,:),                    &
+                 pointer,     optional      :: uh0, u_uh0
+  real, dimension(:,:,:),                    &
+                 pointer,     optional      :: vh0, v_vh0
 
 ! Arguments: use_fluxes - A logical indicating whether velocities (false) or
 !                         fluxes (true) are used to initialize the barotropic
@@ -1442,22 +1489,22 @@ subroutine legacy_btstep(use_fluxes, U_in, V_in, eta_in, dt, bc_accel_u, bc_acce
   if (CS%debug) then
     call uvchksum("BT [uv]hbt", uhbt, vhbt, CS%debug_BT_HI, haloshift=0)
     call uvchksum("BT Initial [uv]bt", ubt, vbt, CS%debug_BT_HI, haloshift=0)
-    call hchksum(GV%H_to_kg_m2*eta, "BT Initial eta",CS%debug_BT_HI, haloshift=0)
+    call hchksum(eta, "BT Initial eta",CS%debug_BT_HI, haloshift=0, scale=GV%H_to_m)
     call uvchksum("BT BT_force_[uv]", &
                   BT_force_u, BT_force_v, CS%debug_BT_HI, haloshift=0)
     if (interp_eta_PF) then
-      call hchksum(GV%H_to_kg_m2*eta_PF_1, "BT eta_PF_1",CS%debug_BT_HI,haloshift=0)
-      call hchksum(GV%H_to_kg_m2*d_eta_PF, "BT d_eta_PF",CS%debug_BT_HI,haloshift=0)
+      call hchksum(eta_PF_1, "BT eta_PF_1",CS%debug_BT_HI,haloshift=0, scale=GV%H_to_m)
+      call hchksum(d_eta_PF, "BT d_eta_PF",CS%debug_BT_HI,haloshift=0, scale=GV%H_to_m)
     else
-      call hchksum(GV%H_to_kg_m2*eta_PF, "BT eta_PF",CS%debug_BT_HI,haloshift=0)
-      call hchksum(GV%H_to_kg_m2*eta_PF_in, "BT eta_PF_in",G%HI,haloshift=0)
+      call hchksum(eta_PF, "BT eta_PF",CS%debug_BT_HI,haloshift=0, scale=GV%H_to_m)
+      call hchksum(eta_PF_in, "BT eta_PF_in",G%HI,haloshift=0, scale=GV%H_to_m)
     endif
     call uvchksum("BT Cor_ref_[uv]", Cor_ref_u, Cor_ref_v, &
                   CS%debug_BT_HI, haloshift=0)
-    call uvchksum("BT [uv]hbt0", uhbt0,  vhbt0, CS%debug_BT_HI, haloshift=0)
+    call uvchksum("BT [uv]hbt0", uhbt0,  vhbt0, CS%debug_BT_HI, haloshift=0, scale=GV%H_to_m)
     if (.not. use_BT_cont) then
-      call uvchksum("BT Dat[uv]", GV%H_to_m*Datu, GV%H_to_m*Datv, &
-                    CS%debug_BT_HI,haloshift=1)
+      call uvchksum("BT Dat[uv]", Datu, Datv, &
+                    CS%debug_BT_HI,haloshift=1, scale=GV%H_to_m)
     endif
     call uvchksum("BT wt_[uv]", wt_u, wt_v, G%HI,haloshift=1)
     call uvchksum("BT frhat[uv]", CS%frhatu, CS%frhatv, G%HI, haloshift=1)
@@ -1835,7 +1882,7 @@ subroutine legacy_btstep(use_fluxes, U_in, V_in, eta_in, dt, bc_accel_u, bc_acce
       write(mesg,'("BT step ",I4)') n
       call uvchksum(trim(mesg)//" [uv]bt", &
                     ubt, vbt, CS%debug_BT_HI, haloshift=iev-ie)
-      call hchksum(GV%H_to_kg_m2*eta, trim(mesg)//" eta",CS%debug_BT_HI,haloshift=iev-ie)
+      call hchksum(eta, trim(mesg)//" eta", CS%debug_BT_HI, haloshift=iev-ie, scale=GV%H_to_m)
     endif
 
   enddo ! end of do n=1,ntimestep
@@ -2037,14 +2084,24 @@ subroutine legacy_btstep(use_fluxes, U_in, V_in, eta_in, dt, bc_accel_u, bc_acce
 end subroutine legacy_btstep
 
 subroutine legacy_set_dtbt(G, GV, CS, eta, pbce, BT_cont, gtot_est, SSH_add)
-  type(ocean_grid_type),                    intent(inout) :: G
-  type(verticalGrid_type),                  intent(in)    :: GV
-  type(legacy_barotropic_CS),               pointer       :: CS
-  real, dimension(SZI_(G),SZJ_(G)),         intent(in), optional :: eta
-  real, dimension(SZI_(G),SZJ_(G),SZK_(G)), intent(in), optional :: pbce
-  type(BT_cont_type),                       pointer,    optional :: BT_cont
-  real,                                     intent(in), optional :: gtot_est
-  real,                                     intent(in), optional :: SSH_add
+  type(ocean_grid_type),                intent(inout) :: G        !< The ocean's grid structure.
+  type(verticalGrid_type),              intent(in)    :: GV       !< The ocean's vertical grid
+                                                                  !! structure.
+  type(legacy_barotropic_CS),           pointer       :: CS       !< The control structure returned
+                                                          !! by a previous call to barotropic_init.
+  real, dimension(SZI_(G),SZJ_(G)),         &
+                            intent(in), optional      :: eta      !< The barotropic free surface
+                                        !! height anomaly or column mass anomaly, in m or kg m-2.
+  real, dimension(SZI_(G),SZJ_(G),SZK_(G)), &
+                            intent(in), optional      :: pbce     !< The baroclinic pressure anomaly
+                               !! in each layer due to free surface height anomalies, in m2 H-1 s-2.
+  type(BT_cont_type),       pointer,    optional      :: BT_cont  !< A structure with elements that
+                        !! describe the effective open face areas as a function of barotropic flow.
+  real,                     intent(in), optional      :: gtot_est !< An estimate of the total
+                                                    !! gravitational acceleration, in m s-2.
+  real,                     intent(in), optional      :: SSH_add  !< An additional contribution to
+               !! SSH to provide a margin of error when calculating the external wave speed, in m
+
 ! Arguments: G - The ocean's grid structure.
 !  (in)      GV - The ocean's vertical grid structure.
 !  (in)      CS - The control structure returned by a previous call to
@@ -2154,28 +2211,57 @@ subroutine legacy_set_dtbt(G, GV, CS, eta, pbce, BT_cont, gtot_est, SSH_add)
 end subroutine legacy_set_dtbt
 
 ! The following 4 subroutines apply the open boundary conditions.
+!> This subroutine applies the open boundary conditions on barotropic
+!! velocities and mass transports, as developed by Mehmet Ilicak.
 subroutine apply_velocity_OBCs(OBC, ubt, vbt, uhbt, vhbt, ubt_trans, vbt_trans, &
                                eta, ubt_old, vbt_old, BT_OBC, &
                                G, MS, halo, dtbt, bebt, use_BT_cont, Datu, Datv, &
                                BTCL_u, BTCL_v, uhbt0, vhbt0)
-  type(ocean_OBC_type),              pointer       :: OBC
-  type(ocean_grid_type),             intent(inout) :: G
-  type(memory_size_type),            intent(in)    :: MS
-  real, dimension(SZIBW_(MS),SZJW_(MS)), intent(inout) :: ubt, uhbt, ubt_trans
-  real, dimension(SZIW_(MS),SZJBW_(MS)), intent(inout) :: vbt, vhbt, vbt_trans
-  real, dimension(SZIW_(MS),SZJW_(MS)),   intent(in)    :: eta
-  real, dimension(SZIBW_(MS),SZJW_(MS)),  intent(in)    :: ubt_old
-  real, dimension(SZIW_(MS),SZJBW_(MS)),  intent(in)    :: vbt_old
-  type(BT_OBC_type),                 intent(in)    :: BT_OBC
-  integer,                           intent(in)    :: halo
-  real,                              intent(in)    :: dtbt, bebt
-  logical,                           intent(in)    :: use_BT_cont
-  real, dimension(SZIBW_(MS),SZJW_(MS)),  intent(in)    :: Datu
-  real, dimension(SZIW_(MS),SZJBW_(MS)),  intent(in)    :: Datv
-  type(local_BT_cont_u_type), dimension(SZIBW_(MS),SZJW_(MS)), intent(in) :: BTCL_u
-  type(local_BT_cont_v_type), dimension(SZIW_(MS),SZJBW_(MS)), intent(in) :: BTCL_v
-  real, dimension(SZIBW_(MS),SZJW_(MS)),  intent(in)    :: uhbt0
-  real, dimension(SZIW_(MS),SZJBW_(MS)),  intent(in)    :: vhbt0
+  type(ocean_OBC_type),                  pointer       :: OBC     !< An associated pointer to an
+                                                                  !! OBC type.
+  type(ocean_grid_type),                 intent(inout) :: G       !< The ocean's grid structure.
+  type(memory_size_type),                intent(in)    :: MS      !< A type that describes the
+                                                          !! memory sizes of the argument arrays.
+  real, dimension(SZIBW_(MS),SZJW_(MS)), intent(inout) :: ubt     !< The zonal barotropic velocity,
+                                                                  !! in m s-1.
+  real, dimension(SZIBW_(MS),SZJW_(MS)), intent(inout) :: uhbt    !< The zonal barotropic transport,
+                                                                  !! in H m2 s-1.
+  real, dimension(SZIBW_(MS),SZJW_(MS)), intent(inout) :: ubt_trans !< The zonal barotropic velocity
+                                                                  !! used in transport, m s-1.
+  real, dimension(SZIW_(MS),SZJBW_(MS)), intent(inout) :: vbt     !< The meridional barotropic
+                                                                  !! velocity, in m s-1.
+  real, dimension(SZIW_(MS),SZJBW_(MS)), intent(inout) :: vhbt    !< The meridional barotropic
+                                                                  !! transport, in H m2 s-1.
+  real, dimension(SZIW_(MS),SZJBW_(MS)), intent(inout) :: vbt_trans !< The meridional BT velocity
+                                                                  !! used in transports, m s-1.
+  real, dimension(SZIW_(MS),SZJW_(MS)),  intent(in)    :: eta     !< The barotropic free surface
+                                        !! height anomaly or column mass anomaly, in m or kg m-2.
+  real, dimension(SZIBW_(MS),SZJW_(MS)), intent(in)    :: ubt_old !< The starting value of ubt in a
+                                                                  !! barotropic step, m s-1.
+  real, dimension(SZIW_(MS),SZJBW_(MS)), intent(in)    :: vbt_old !< The starting value of ubt in a
+                                                                  !! barotropic step, m s-1.
+  type(BT_OBC_type),                     intent(in)    :: BT_OBC  !< A structure with the private
+                                                      !! barotropic arrays related to the open
+                                                      !! boundary conditions, set by set_up_BT_OBC.
+  integer,                               intent(in)    :: halo    !< The extra halo size to
+                                                                  !! use here.
+  real,                                  intent(in)    :: dtbt    !< The time step, in s.
+  real,                                  intent(in)    :: bebt    !< The fractional weighting of
+                                             !! the future velocity in determining the transport.
+  logical,                               intent(in)    :: use_BT_cont !< If true, use the
+                                                  !! BT_cont_types to calculate transports.
+  real, dimension(SZIBW_(MS),SZJW_(MS)), intent(in)    :: Datu    !< A fixed estimate of the face
+                                                                  !! areas at u points.
+  real, dimension(SZIW_(MS),SZJBW_(MS)), intent(in)    :: Datv    !< A fixed estimate of the face
+                                                                  !! areas at u points.
+  type(local_BT_cont_u_type), dimension(SZIBW_(MS),SZJW_(MS)), &
+                                         intent(in)    :: BTCL_u  !< Structures of information used
+                                          !! for a dynamic estimate of the face areas at u- points.
+  type(local_BT_cont_v_type), dimension(SZIW_(MS),SZJBW_(MS)), &
+                                         intent(in)    :: BTCL_v  !< Structures of information used
+                                          !! for a dynamic estimate of the face areas at v- points.
+  real, dimension(SZIBW_(MS),SZJW_(MS)), intent(in)    :: uhbt0
+  real, dimension(SZIW_(MS),SZJBW_(MS)), intent(in)    :: vhbt0
 !   This subroutine applies the open boundary conditions on barotropic
 ! velocities and mass transports, as developed by Mehmet Ilicak.
 
@@ -2345,16 +2431,25 @@ subroutine apply_velocity_OBCs(OBC, ubt, vbt, uhbt, vhbt, ubt_trans, vbt_trans, 
 
 end subroutine apply_velocity_OBCs
 
+!> This subroutine applies the open boundary conditions on the free surface
+!! height, as coded by Mehmet Ilicak.
 subroutine apply_eta_OBCs(OBC, eta, ubt, vbt, BT_OBC, G, MS, halo, dtbt)
-  type(ocean_OBC_type),                  pointer       :: OBC
-  type(memory_size_type),                intent(in)    :: MS
-  real, dimension(SZIW_(MS),SZJW_(MS)),  intent(inout) :: eta
-  real, dimension(SZIBW_(MS),SZJW_(MS)), intent(in)    :: ubt
-  real, dimension(SZIW_(MS),SZJBW_(MS)), intent(in)    :: vbt
-  type(BT_OBC_type),                     intent(in)    :: BT_OBC
-  type(ocean_grid_type),                 intent(inout) :: G
-  integer,                               intent(in)    :: halo
-  real,                                  intent(in)    :: dtbt
+  type(ocean_OBC_type),                  pointer       :: OBC  !< An associated pointer to
+                                                               !! an OBC type.
+  type(memory_size_type),                intent(in)    :: MS   !< A type that describes the memory
+                                                               !! sizes of the argument arrays.
+  real, dimension(SZIW_(MS),SZJW_(MS)),  intent(inout) :: eta  !< The barotropic free surface height
+                                                  !! anomaly or column mass anomaly, in m or kg m-2.
+  real, dimension(SZIBW_(MS),SZJW_(MS)), intent(in)    :: ubt  !< The zonal barotropic velocity,
+                                                               !! in m s-1.
+  real, dimension(SZIW_(MS),SZJBW_(MS)), intent(in)    :: vbt  !< The meridional barotropic
+                                                               !! velocity, in m s-1.
+  type(BT_OBC_type),                     intent(in)    :: BT_OBC !<A structure with the private
+                                                  !! barotropic arrays related to the open
+                                                  !! boundary conditions, set by set_up_BT_OBC.
+  type(ocean_grid_type),                 intent(inout) :: G    !< The ocean's grid structure.
+  integer,                               intent(in)    :: halo !< The extra halo size to use here.
+  real,                                  intent(in)    :: dtbt !< The time step, in s.
 !   This subroutine applies the open boundary conditions on the free surface
 ! height, as coded by Mehmet Ilicak.
 
@@ -2430,20 +2525,34 @@ subroutine apply_eta_OBCs(OBC, eta, ubt, vbt, BT_OBC, G, MS, halo, dtbt)
   endif
 
 end subroutine apply_eta_OBCs
-
+!> This subroutine sets up the private structure used to apply the open
+!! boundary conditions, as developed by Mehmet Ilicak.
 subroutine set_up_BT_OBC(OBC, eta, BT_OBC, G, GV, MS, halo, use_BT_cont, Datu, Datv, BTCL_u, BTCL_v)
-  type(ocean_OBC_type),                  pointer       :: OBC
-  type(memory_size_type),                intent(in)    :: MS
-  real, dimension(SZIW_(MS),SZJW_(MS)),  intent(in)    :: eta
-  type(BT_OBC_type),                     intent(inout) :: BT_OBC
-  type(ocean_grid_type),                 intent(inout) :: G
-  type(verticalGrid_type),               intent(in)    :: GV
-  integer,                               intent(in)    :: halo
-  logical,                               intent(in)    :: use_BT_cont
-  real, dimension(SZIBW_(MS),SZJW_(MS)), intent(in)    :: Datu
-  real, dimension(SZIW_(MS),SZJBW_(MS)), intent(in)    :: Datv
-  type(local_BT_cont_u_type), dimension(SZIBW_(MS),SZJW_(MS)), intent(in) :: BTCL_u
-  type(local_BT_cont_v_type), dimension(SZIW_(MS),SZJBW_(MS)), intent(in) :: BTCL_v
+  type(ocean_OBC_type),                  pointer       :: OBC    !< An associated pointer to an
+                                                                 !! OBC type.
+  type(memory_size_type),                intent(in)    :: MS     !< A type that describes the memory
+                                                                 !! sizes of the argument arrays.
+  real, dimension(SZIW_(MS),SZJW_(MS)),  intent(in)    :: eta    !< The barotropic free surface
+                                        !! height anomaly or column mass anomaly, in m or kg m-2.
+  type(BT_OBC_type),                     intent(inout) :: BT_OBC !< A structure with the private
+                                                     !! barotropic arrays related to the open
+                                                     !! boundary conditions, set by set_up_BT_OBC.
+  type(ocean_grid_type),                 intent(inout) :: G      !< The ocean's grid structure.
+  type(verticalGrid_type),               intent(in)    :: GV     !< The ocean's vertical grid
+                                                                 !! structure.
+  integer,                               intent(in)    :: halo   !< The extra halo size to use here.
+  logical,                               intent(in)    :: use_BT_cont !< If true, use the
+                                                   !! BT_cont_types to calculate transports.
+  real, dimension(SZIBW_(MS),SZJW_(MS)), intent(in)    :: Datu   !< A fixed estimate of the face
+                                                                 !! areas at u points.
+  real, dimension(SZIW_(MS),SZJBW_(MS)), intent(in)    :: Datv   !< A fixed estimate of the face
+                                                                 !! areas at v points.
+  type(local_BT_cont_u_type), dimension(SZIBW_(MS),SZJW_(MS)), &
+                                         intent(in)    :: BTCL_u !< Structures of information used
+                                         !! for a dynamic estimate of the face areas at u- points.
+  type(local_BT_cont_v_type), dimension(SZIW_(MS),SZJBW_(MS)), &
+                                         intent(in)    :: BTCL_v !< Structures of information used
+                                         !! for a dynamic estimate of the face areas at v- points.
 !   This subroutine sets up the private structure used to apply the open
 ! boundary conditions, as developed by Mehmet Ilicak.
 
@@ -2520,12 +2629,17 @@ subroutine set_up_BT_OBC(OBC, eta, BT_OBC, G, GV, MS, halo, use_BT_cont, Datu, D
         endif
       endif
     endif ; enddo ; enddo
-    if (associated(OBC%ubt_outer)) then ; do j=js,je ; do I=is-1,ie
-      BT_OBC%ubt_outer(I,j) = OBC%ubt_outer(I,j)
-    enddo ; enddo ; endif
-    if (associated(OBC%eta_outer_u)) then ; do j=js,je ; do I=is-1,ie
-      BT_OBC%eta_outer_u(I,j) = OBC%eta_outer_u(I,j)
-    enddo ; enddo ; endif
+    if (OBC%Flather_u_BCs_exist_globally) then
+      do n = 1, OBC%number_of_segments
+        segment => OBC%segment(n)
+        if (segment%is_E_or_W .and. segment%Flather) then
+          do j=segment%HI%jsd,segment%HI%jed ; do I=segment%HI%IsdB,segment%HI%IedB
+            BT_OBC%ubt_outer(I,j) = segment%normal_vel_bt(I,j)
+            BT_OBC%eta_outer_u(I,j) = segment%eta(I,j)
+          enddo ; enddo
+        endif
+      enddo
+    endif
   endif
   if (apply_v_OBCs) then
     if (OBC%specified_v_BCs_exist_globally) then
@@ -2557,12 +2671,17 @@ subroutine set_up_BT_OBC(OBC, eta, BT_OBC, G, GV, MS, halo, use_BT_cont, Datu, D
         endif
       endif
     endif ; enddo ; enddo
-    if (associated(OBC%vbt_outer)) then ; do J=js-1,je ; do i=is,ie
-      BT_OBC%vbt_outer(i,J) = OBC%vbt_outer(i,J)
-    enddo ; enddo ; endif
-    if (associated(OBC%eta_outer_v)) then ; do J=js-1,je ; do i=is,ie
-      BT_OBC%eta_outer_v(i,J) = OBC%eta_outer_v(i,J)
-    enddo ; enddo ; endif
+    if (OBC%Flather_v_BCs_exist_globally) then
+      do n = 1, OBC%number_of_segments
+        segment => OBC%segment(n)
+        if (segment%is_N_or_S .and. segment%Flather) then
+          do J=segment%HI%JsdB,segment%HI%JedB ; do i=segment%HI%isd,segment%HI%ied
+            BT_OBC%vbt_outer(i,J) = segment%normal_vel_bt(i,J)
+            BT_OBC%eta_outer_v(i,J) = segment%eta(i,J)
+          enddo ; enddo
+        endif
+      enddo
+    endif
   endif
 end subroutine set_up_BT_OBC
 
@@ -2582,15 +2701,26 @@ subroutine destroy_BT_OBC(BT_OBC)
   deallocate(BT_OBC%eta_outer_v)
 end subroutine destroy_BT_OBC
 
-
+!> This subroutine calculates the barotropic velocities from the full velocity and
+!! thickness fields, determines the fraction of the total water column in each
+!! layer at velocity points, and determines a corrective fictitious mass source
+!! that will drive the barotropic estimate of the free surface height toward the
+!! baroclinic estimate.
 subroutine legacy_btcalc(h, G, GV, CS, h_u, h_v, may_use_default)
-  type(ocean_grid_type),                  intent(inout) :: G
-  type(verticalGrid_type),                intent(in)    :: GV
-  real, dimension(SZI_(G),SZJ_(G),SZK_(G)), intent(in)  :: h
-  type(legacy_barotropic_CS),             pointer       :: CS
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), intent(in), optional :: h_u
-  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), intent(in), optional :: h_v
-  logical,                                   intent(in), optional :: may_use_default
+  type(ocean_grid_type),                    intent(inout) :: G  !< The ocean's grid structure.
+  type(verticalGrid_type),                  intent(in)    :: GV !< The ocean's vertical grid
+                                                                !! structure.
+  real, dimension(SZI_(G),SZJ_(G),SZK_(G)), intent(in)    :: h  !< Layer thicknesses, in H
+                                                                !! (usually m or kg m-2).
+  type(legacy_barotropic_CS),               pointer       :: CS !< The control structure returned
+                                                        !! by a previous call to barotropic_init.
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), &
+                                intent(in), optional      :: h_u !< The specified thicknesses at u-
+                                                                 !! and v- points, in m or kg m-2.
+  real, dimension(SZI_(G),SZJB_(G),SZK_(G)), &
+                                intent(in), optional      :: h_v !< The specified thicknesses at u-
+                                                                 !! and v- points, in m or kg m-2.
+  logical,                      intent(in), optional      :: may_use_default
 !   btcalc calculates the barotropic velocities from the full velocity and
 ! thickness fields, determines the fraction of the total water column in each
 ! layer at velocity points, and determines a corrective fictitious mass source
@@ -2822,14 +2952,14 @@ subroutine legacy_btcalc(h, G, GV, CS, h_u, h_v, may_use_default)
   endif
 
   if (CS%debug) then
-    call uvchksum("btcalc frhat[uv]", CS%frhatu, CS%frhatv, G%HI,haloshift=1)
-    call hchksum(GV%H_to_m*h, "btcalc h",G%HI,haloshift=1)
+    call uvchksum("btcalc frhat[uv]", CS%frhatu, CS%frhatv, G%HI, haloshift=1)
+    call hchksum(h, "btcalc h", G%HI, haloshift=1, scale=GV%H_to_m)
   endif
 
 end subroutine legacy_btcalc
 
 function find_uhbt(u, BTC) result(uhbt)
-  real, intent(in) :: u
+  real, intent(in) :: u    !< The zonal velocity, in m s-1
   type(local_BT_cont_u_type), intent(in) :: BTC
   real :: uhbt ! The result
   ! This function evaluates the zonal transport function.
@@ -2848,10 +2978,14 @@ function find_uhbt(u, BTC) result(uhbt)
 end function find_uhbt
 
 function uhbt_to_ubt(uhbt, BTC, guess) result(ubt)
-  real, intent(in) :: uhbt
-  type(local_BT_cont_u_type), intent(in) :: BTC
-  real, optional, intent(in) :: guess
-  real :: ubt ! The result
+  real,                       intent(in) :: uhbt  !< The barotropic zonal transport that should be
+                                                  !! inverted for, in units of H m2 s-1.
+  type(local_BT_cont_u_type), intent(in) :: BTC   !< A structure containing various fields that
+                                            !! allow the barotropic transports to be calculated
+                                            !! consistently with the layers' continuity equations.
+  real,             optional, intent(in) :: guess !< A guess at what ubt will be.  The result is not
+                                                  !! allowed to be dramatically larger than guess.
+  real                                   :: ubt   !< The result
   !   This function inverts the transport function to determine the barotopic
   ! velocity that is consistent with a given transport.
   ! Arguments: uhbt - The barotropic zonal transport that should be inverted
@@ -2946,7 +3080,7 @@ function uhbt_to_ubt(uhbt, BTC, guess) result(ubt)
 end function uhbt_to_ubt
 
 function find_vhbt(v, BTC) result(vhbt)
-  real, intent(in) :: v
+  real, intent(in) :: v    !< The meridional velocity, in m s-1
   type(local_BT_cont_v_type), intent(in) :: BTC
   real :: vhbt ! The result
   ! This function evaluates the meridional transport function.
@@ -2965,10 +3099,14 @@ function find_vhbt(v, BTC) result(vhbt)
 end function find_vhbt
 
 function vhbt_to_vbt(vhbt, BTC, guess) result(vbt)
-  real, intent(in) :: vhbt
-  type(local_BT_cont_v_type), intent(in) :: BTC
-  real, optional, intent(in) :: guess
-  real :: vbt ! The result
+  real,                       intent(in) :: vhbt
+  type(local_BT_cont_v_type), intent(in) :: BTC   !< A structure containing various fields that
+                                           !! allow the barotropic transports to be calculated
+                                           !! consistently with the layers' continuity equations.
+  real,             optional, intent(in) :: guess !< A guess at what vbt will be.  The result is not
+                                                  !! allowed to be dramatically larger than guess.
+  real                                   :: vbt   !< The result: The velocity that gives vhbt
+                                                  !! transport, in m s-1.
   !   This function inverts the transport function to determine the barotopic
   ! velocity that is consistent with a given transport.
   ! Arguments: vhbt_in - The barotropic meridional transport that should be
@@ -3064,13 +3202,21 @@ end function vhbt_to_vbt
 
 
 subroutine set_local_BT_cont_types(BT_cont, BTCL_u, BTCL_v, G, MS, BT_Domain, halo)
-  type(BT_cont_type),                                    intent(inout) :: BT_cont
-  type(memory_size_type),                                intent(in)    :: MS
-  type(local_BT_cont_u_type), dimension(SZIBW_(MS),SZJW_(MS)), intent(out) :: BTCL_u
-  type(local_BT_cont_v_type), dimension(SZIW_(MS),SZJBW_(MS)), intent(out) :: BTCL_v
-  type(ocean_grid_type),                                 intent(inout) :: G
-  type(MOM_domain_type),                                intent(inout) :: BT_Domain
-  integer,                                     optional, intent(in)    :: halo
+  type(BT_cont_type),                    intent(inout) :: BT_cont !< The BT_cont_type input to the
+                                                                  !! barotropic solver.
+  type(memory_size_type),                intent(in)    :: MS      !< A type that describes the
+                                                        !! memory sizes of the argument arrays.
+  type(local_BT_cont_u_type), dimension(SZIBW_(MS),SZJW_(MS)), &
+                                         intent(out)   :: BTCL_u  !< A structure with the u
+                                                                  !! information from BT_cont.
+  type(local_BT_cont_v_type), dimension(SZIW_(MS),SZJBW_(MS)), &
+                                         intent(out)   :: BTCL_v  !< A structure with the v
+                                                                  !! information from BT_cont.
+  type(ocean_grid_type),                 intent(inout) :: G       !< The ocean's grid structure.
+  type(MOM_domain_type),                 intent(inout) :: BT_Domain !< The domain to use for
+                                                              !! updating the halos of wide arrays.
+  integer,                     optional, intent(in)    :: halo    !< The extra halo size
+                                                                  !! to use here.
 !   This subroutine sets up reordered versions of the BT_cont type in the
 ! local_BT_cont types, which have wide halos properly filled in.
 ! Arguments: BT_cont - The BT_cont_type input to the barotropic solver.
@@ -3173,12 +3319,19 @@ end subroutine set_local_BT_cont_types
 
 subroutine BT_cont_to_face_areas(BT_cont, Datu, Datv, G, MS, halo, maximize)
   type(BT_cont_type),                         intent(inout) :: BT_cont
-  type(memory_size_type),                     intent(in)    :: MS
-  real, dimension(MS%isdw-1:MS%iedw,MS%jsdw:MS%jedw), intent(out)   :: Datu
-  real, dimension(MS%isdw:MS%iedw,MS%jsdw-1:MS%jedw), intent(out)   :: Datv
-  type(ocean_grid_type),                      intent(in)  :: G
-  integer,                          optional, intent(in)  :: halo
-  logical,                          optional, intent(in)  :: maximize
+  type(memory_size_type),                     intent(in)    :: MS   !< A type that describes the
+                                                                    !! memory sizes of the argument
+                                                                    !! arrays.
+  real, dimension(MS%isdw-1:MS%iedw,MS%jsdw:MS%jedw), &
+                                              intent(out)   :: Datu !< The open zonal face area, in
+                                                                    !! H m (m2 or kg m-1).
+  real, dimension(MS%isdw:MS%iedw,MS%jsdw-1:MS%jedw), &
+                                              intent(out)   :: Datv !< The open meridional face
+                                                                    !! area, in H m (m2 or kg m-1).
+  type(ocean_grid_type),                      intent(in)    :: G    !< The ocean's grid structure.
+  integer,                          optional, intent(in)    :: halo !< The halo size to use,
+                                                                    !! default = 1.
+  logical,                          optional, intent(in)    :: maximize
   !   This subroutine uses the BTCL types to find typical or maximum face
   ! areas, which can then be used for finding wave speeds, etc.
   logical :: find_max
@@ -3213,16 +3366,26 @@ subroutine swap(a,b)
 end subroutine swap
 
 subroutine find_face_areas(Datu, Datv, G, GV, CS, MS, rescale_faces, eta, halo, add_max)
-  type(memory_size_type),                   intent(in) :: MS
-  real, dimension(MS%isdw-1:MS%iedw,MS%jsdw:MS%jedw), intent(out)   :: Datu
-  real, dimension(MS%isdw:MS%iedw,MS%jsdw-1:MS%jedw), intent(out)   :: Datv
-  type(ocean_grid_type),                    intent(in) :: G
-  type(verticalGrid_type),                  intent(in) :: GV
-  type(legacy_barotropic_CS),               pointer    :: CS
-  logical,                        optional, intent(in) :: rescale_faces
-  real, dimension(MS%isdw:MS%iedw,MS%jsdw:MS%jedw), optional, intent(in) :: eta
-  integer,                        optional, intent(in) :: halo
-  real,                           optional, intent(in) :: add_max
+  type(memory_size_type),            intent(in)  :: MS   !< A type that describes the memory sizes
+                                                         !! of the argument arrays.
+  real, dimension(MS%isdw-1:MS%iedw,MS%jsdw:MS%jedw), &
+                                     intent(out) :: Datu !< The open zonal face area, in H m
+                                                         !! (m2 or kg m-1).
+  real, dimension(MS%isdw:MS%iedw,MS%jsdw-1:MS%jedw), &
+                                     intent(out) :: Datv !< The open meridional face area, in H m
+                                                         !! (m2 or kg m-1).
+  type(ocean_grid_type),             intent(in)  :: G    !< The ocean's grid structure.
+  type(verticalGrid_type),           intent(in)  :: GV   !< The ocean's vertical grid structure.
+  type(legacy_barotropic_CS),        pointer     :: CS   !< The control structure returned by a
+                                                         !! previous call to barotropic_init.
+  logical,                 optional, intent(in)  :: rescale_faces !< If true, rescale the face areas
+                                                                  !! by Datu_res, etc.
+  real, dimension(MS%isdw:MS%iedw,MS%jsdw:MS%jedw), &
+                           optional, intent(in)  :: eta  !< The barotropic free surface height
+                                            !! anomaly or column mass anomaly, in m or kg m-2.
+  integer,                 optional, intent(in)  :: halo !< The halo size to use, default = 1.
+  real,                    optional, intent(in)  :: add_max !< A value to add to the maximum depth
+                                           !! (used to overestimate the external wave speed) in m.
 ! Arguments: Datu - The open zonal face area, in H m (m2 or kg m-1).
 !  (out)     Datv - The open meridional face area, in H m (m2 or kg m-1).
 !  (in)      G - The ocean's grid structure.
@@ -3324,14 +3487,26 @@ end subroutine find_face_areas
 
 subroutine legacy_bt_mass_source(h, eta, fluxes, set_cor, dt_therm, &
                                  dt_since_therm, G, GV, CS)
-  type(ocean_grid_type),                intent(in) :: G
-  type(verticalGrid_type),              intent(in) :: GV
-  real, dimension(SZI_(G),SZJ_(G),SZK_(G)), intent(in) :: h
-  real, dimension(SZI_(G),SZJ_(G)),     intent(in) :: eta
-  type(forcing),                        intent(in) :: fluxes
-  logical,                              intent(in) :: set_cor
-  real,                                 intent(in) :: dt_therm, dt_since_therm
-  type(legacy_barotropic_CS),           pointer    :: CS
+  type(ocean_grid_type),       intent(in) :: G        !< The ocean's grid structure.
+  type(verticalGrid_type),     intent(in) :: GV       !< The ocean's vertical grid structure.
+  real, dimension(SZI_(G),SZJ_(G),SZK_(G)), &
+                               intent(in) :: h        !< Layer thicknesses, in H
+                                                      !! (usually m or kg m-2).
+  real, dimension(SZI_(G),SZJ_(G)),         &
+                               intent(in) :: eta      !< The free surface height that is to be
+                                                      !! corrected, in m.
+  type(forcing),               intent(in) :: fluxes   !< A structure containing pointers to any
+                                                      !! possible forcing fields. Unused fields
+                                                      !! have NULL ptrs.
+  logical,                     intent(in) :: set_cor  !< A flag to indicate whether to set the
+                         !! corrective fluxes (and update the slowly varying part of eta_cor)
+                         !! (.true.) or whether to incrementally update the corrective fluxes.
+  real,                        intent(in) :: dt_therm !< The thermodynamic time step, in s.
+  real,                        intent(in) :: dt_since_therm !< The elapsed time since mass forcing
+                                                            !! was applied, s.
+  type(legacy_barotropic_CS),  pointer    :: CS       !< The control structure returned by a
+                                                      !! previous call to barotropic_init.
+
 !   bt_mass_source determines the appropriately limited mass source for
 ! the barotropic solver, along with a corrective fictitious mass source that
 ! will drive the barotropic estimate of the free surface height toward the
@@ -3430,19 +3605,31 @@ end subroutine legacy_bt_mass_source
 
 subroutine legacy_barotropic_init(u, v, h, eta, Time, G, GV, param_file, diag, CS, &
                            restart_CS, BT_cont, tides_CSp)
-  type(ocean_grid_type),              intent(inout) :: G
-  type(verticalGrid_type),            intent(in)    :: GV
-  real, intent(in), dimension(SZIB_(G),SZJ_(G),SZK_(G)) :: u
-  real, intent(in), dimension(SZI_(G),SZJB_(G),SZK_(G)) :: v
-  real, intent(in), dimension(SZI_(G),SZJ_(G),SZK_(G))  :: h
-  real, intent(in), dimension(SZI_(G),SZJ_(G))      :: eta
-  type(time_type), target,            intent(in)    :: Time
-  type(param_file_type),              intent(in)    :: param_file
-  type(diag_ctrl), target,            intent(inout) :: diag
-  type(legacy_barotropic_CS),         pointer       :: CS
-  type(MOM_restart_CS),               pointer       :: restart_CS
-  type(BT_cont_type),       optional, pointer       :: BT_cont
-  type(tidal_forcing_CS),   optional, pointer       :: tides_CSp
+  type(ocean_grid_type),              intent(inout) :: G          !< The ocean's grid structure.
+  type(verticalGrid_type),            intent(in)    :: GV         !< The ocean's vertical grid
+                                                                  !! structure.
+  real, intent(in), dimension(SZIB_(G),SZJ_(G),SZK_(G)) :: u      !< The zonal velocity, in m s-1.
+  real, intent(in), dimension(SZI_(G),SZJB_(G),SZK_(G)) :: v      !< The meridional velocity,
+                                                                  !! in m s-1.
+  real, intent(in), dimension(SZI_(G),SZJ_(G),SZK_(G))  :: h      !< Layer thicknesses, in H
+                                                                  !! (usually m or kg m-2).
+  real, intent(in), dimension(SZI_(G),SZJ_(G))      :: eta        !< Free surface height or column
+                                                                  !! mass anomaly, in m or kg m-2.
+  type(time_type), target,            intent(in)    :: Time       !< The current model time.
+  type(param_file_type),              intent(in)    :: param_file !< A structure to parse for
+                                                                  !! run-time parameters.
+  type(diag_ctrl), target,            intent(inout) :: diag       !< A structure that is used to
+                                                                  !! regulate diagnostic output.
+  type(legacy_barotropic_CS),         pointer       :: CS         !< A pointer to the control
+                                                          !! structure for this module that is
+                                                          !! set in register_barotropic_restarts.
+  type(MOM_restart_CS),               pointer       :: restart_CS !< A pointer to the restart
+                                                                  !! control structure.
+  type(BT_cont_type),       optional, pointer       :: BT_cont    !< A structure with elements that
+                                                         !! describe the effective open face areas
+                                                         !! as a function of barotropic flow.
+  type(tidal_forcing_CS),   optional, pointer       :: tides_CSp  !< A pointer to the control
+                                                                  !! structure of the tide module.
 !   barotropic_init initializes a number of time-invariant fields used in the
 ! barotropic calculation and initializes any barotropic fields that have not
 ! already been initialized.
@@ -3465,7 +3652,7 @@ subroutine legacy_barotropic_init(u, v, h, eta, Time, G, GV, param_file, diag, C
 !  (in)      tides_CSp - a pointer to the control structure of the tide module.
 ! This include declares and sets the variable "version".
 #include "version_variable.h"
-  character(len=40)  :: mod = "MOM_barotropic"  ! This module's name.
+  character(len=40)  :: mdl = "MOM_barotropic"  ! This module's name.
   real :: Datu(SZIBS_(G),SZJ_(G)), Datv(SZI_(G),SZJBS_(G))
   real :: gtot_estimate ! Summing GV%g_prime gives an upper-bound estimate for pbce.
   real :: SSH_extra     ! An estimate of how much higher SSH might get, for use
@@ -3499,28 +3686,28 @@ subroutine legacy_barotropic_init(u, v, h, eta, Time, G, GV, param_file, diag, C
   endif
 
   ! Read all relevant parameters and write them to the model log.
-  call log_version(param_file, mod, version, "")
-  call get_param(param_file, mod, "SPLIT", CS%split, &
+  call log_version(param_file, mdl, version, "")
+  call get_param(param_file, mdl, "SPLIT", CS%split, &
                  "Use the split time stepping if true.", default=.true.)
   if (.not.CS%split) return
 
   ! ### USE SOMETHING OTHER THAN MAXVEL FOR THIS...
-  call get_param(param_file, mod, "BOUND_BT_CORRECTION", CS%bound_BT_corr, &
+  call get_param(param_file, mdl, "BOUND_BT_CORRECTION", CS%bound_BT_corr, &
                  "If true, the corrective pseudo mass-fluxes into the \n"//&
                  "barotropic solver are limited to values that require \n"//&
                  "less than 0.1*MAXVEL to be accommodated.",default=.false.)
-  call get_param(param_file, mod, "GRADUAL_BT_ICS", CS%gradual_BT_ICs, &
+  call get_param(param_file, mdl, "GRADUAL_BT_ICS", CS%gradual_BT_ICs, &
                  "If true, adjust the initial conditions for the \n"//&
                  "barotropic solver to the values from the layered \n"//&
                  "solution over a whole timestep instead of instantly. \n"//&
                  "This is a decent approximation to the inclusion of \n"//&
                  "sum(u dh_dt) while also correcting for truncation errors.", &
                  default=.false.)
-  call get_param(param_file, mod, "BT_USE_WIDE_HALOS", CS%use_wide_halos, &
+  call get_param(param_file, mdl, "BT_USE_WIDE_HALOS", CS%use_wide_halos, &
                  "If true, use wide halos and march in during the \n"//&
                  "barotropic time stepping for efficiency.", default=.true., &
                  layoutParam=.true.)
-  call get_param(param_file, mod, "BTHALO", bt_halo_sz, &
+  call get_param(param_file, mdl, "BTHALO", bt_halo_sz, &
                  "The minimum halo size for the barotropic solver.", default=0, &
                  layoutParam=.true.)
 #ifdef STATIC_MEMORY_
@@ -3531,44 +3718,44 @@ subroutine legacy_barotropic_init(u, v, h, eta, Time, G, GV, param_file, diag, C
 #else
   wd_halos(1) = bt_halo_sz; wd_halos(2) =  bt_halo_sz
 #endif
-  call log_param(param_file, mod, "!BT x-halo", wd_halos(1), &
+  call log_param(param_file, mdl, "!BT x-halo", wd_halos(1), &
                  "The barotropic x-halo size that is actually used.", &
                  layoutParam=.true.)
-  call log_param(param_file, mod, "!BT y-halo", wd_halos(2), &
+  call log_param(param_file, mdl, "!BT y-halo", wd_halos(2), &
                  "The barotropic y-halo size that is actually used.", &
                  layoutParam=.true.)
 
-  call get_param(param_file, mod, "USE_BT_CONT_TYPE", use_BT_cont_type, &
+  call get_param(param_file, mdl, "USE_BT_CONT_TYPE", use_BT_cont_type, &
                "If true, use a structure with elements that describe \n"//&
                "effective face areas from the summed continuity solver \n"//&
                "as a function the barotropic flow in coupling between \n"//&
                "the barotropic and baroclinic flow.  This is only used \n"//&
                "if SPLIT is true. \n", default=.true.)
-  call get_param(param_file, mod, "NONLINEAR_BT_CONTINUITY", &
+  call get_param(param_file, mdl, "NONLINEAR_BT_CONTINUITY", &
                                 CS%Nonlinear_continuity, &
                  "If true, use nonlinear transports in the barotropic \n"//&
                  "continuity equation.  This does not apply if \n"//&
                  "USE_BT_CONT_TYPE is true.", default=.false.)
   CS%Nonlin_cont_update_period = 1
   if (CS%Nonlinear_continuity) &
-    call get_param(param_file, mod, "NONLIN_BT_CONT_UPDATE_PERIOD", &
+    call get_param(param_file, mdl, "NONLIN_BT_CONT_UPDATE_PERIOD", &
                                   CS%Nonlin_cont_update_period, &
                  "If NONLINEAR_BT_CONTINUITY is true, this is the number \n"//&
                  "of barotropic time steps between updates to the face \n"//&
                  "areas, or 0 to update only before the barotropic stepping.",&
                  units="nondim", default=1)
-  call get_param(param_file, mod, "RESCALE_BT_FACE_AREAS", CS%rescale_D_bt, &
+  call get_param(param_file, mdl, "RESCALE_BT_FACE_AREAS", CS%rescale_D_bt, &
                  "If true, the face areas used by the barotropic solver \n"//&
                  "are rescaled to approximately reflect the open face \n"//&
                  "areas of the interior layers.  This probably requires \n"//&
                  "FLUX_BT_COUPLING to work, and should not be used with \n"//&
                  "USE_BT_CONT_TYPE.", default=.false.)
-  call get_param(param_file, mod, "BT_MASS_SOURCE_LIMIT", CS%eta_source_limit, &
+  call get_param(param_file, mdl, "BT_MASS_SOURCE_LIMIT", CS%eta_source_limit, &
                  "The fraction of the initial depth of the ocean that can \n"//&
                  "be added to or removed from the bartropic solution \n"//&
                  "within a thermodynamic time step.  By default this is 0 \n"//&
                  "for no correction.", units="nondim", default=0.0)
-  call get_param(param_file, mod, "BT_PROJECT_VELOCITY", CS%BT_project_velocity,&
+  call get_param(param_file, mdl, "BT_PROJECT_VELOCITY", CS%BT_project_velocity,&
                  "If true, step the barotropic velocity first and project \n"//&
                  "out the velocity tendancy by 1+BEBT when calculating the \n"//&
                  "transport.  The default (false) is to use a predictor \n"//&
@@ -3577,36 +3764,36 @@ subroutine legacy_barotropic_init(u, v, h, eta, Time, G, GV, param_file, diag, C
                  "average of the old and new velocities, with weights \n"//&
                  "of (1-BEBT) and BEBT.", default=.false.)
 
-  call get_param(param_file, mod, "DYNAMIC_SURFACE_PRESSURE", CS%dynamic_psurf, &
+  call get_param(param_file, mdl, "DYNAMIC_SURFACE_PRESSURE", CS%dynamic_psurf, &
                  "If true, add a dynamic pressure due to a viscous ice \n"//&
                  "shelf, for instance.", default=.false.)
   if (CS%dynamic_psurf) then
-    call get_param(param_file, mod, "ICE_LENGTH_DYN_PSURF", CS%ice_strength_length, &
+    call get_param(param_file, mdl, "ICE_LENGTH_DYN_PSURF", CS%ice_strength_length, &
                  "The length scale at which the Rayleigh damping rate due \n"//&
                  "to the ice strength should be the same as if a Laplacian \n"//&
                  "were applied, if DYNAMIC_SURFACE_PRESSURE is true.", &
                  units="m", default=1.0e4)
-    call get_param(param_file, mod, "DEPTH_MIN_DYN_PSURF", CS%Dmin_dyn_psurf, &
+    call get_param(param_file, mdl, "DEPTH_MIN_DYN_PSURF", CS%Dmin_dyn_psurf, &
                   "The minimum depth to use in limiting the size of the \n"//&
                   "dynamic surface pressure for stability, if \n"//&
                   "DYNAMIC_SURFACE_PRESSURE is true..", units="m", &
                   default=1.0e-6)
-    call get_param(param_file, mod, "CONST_DYN_PSURF", CS%const_dyn_psurf, &
+    call get_param(param_file, mdl, "CONST_DYN_PSURF", CS%const_dyn_psurf, &
                  "The constant that scales the dynamic surface pressure, \n"//&
                  "if DYNAMIC_SURFACE_PRESSURE is true.  Stable values \n"//&
                  "are < ~1.0.", units="nondim", default=0.9)
   endif
 
-  call get_param(param_file, mod, "TIDES", CS%tides, &
+  call get_param(param_file, mdl, "TIDES", CS%tides, &
                  "If true, apply tidal momentum forcing.", default=.false.)
-  call get_param(param_file, mod, "SADOURNY", CS%Sadourny, &
+  call get_param(param_file, mdl, "SADOURNY", CS%Sadourny, &
                  "If true, the Coriolis terms are discretized with the \n"//&
                  "Sadourny (1975) energy conserving scheme, otherwise \n"//&
                  "the Arakawa & Hsu scheme is used.  If the internal \n"//&
                  "deformation radius is not resolved, the Sadourny scheme \n"//&
                  "should probably be used.", default=.true.)
 
-  call get_param(param_file, mod, "BT_THICK_SCHEME", hvel_str, &
+  call get_param(param_file, mdl, "BT_THICK_SCHEME", hvel_str, &
                  "A string describing the scheme that is used to set the \n"//&
                  "open face areas used for barotropic transport and the \n"//&
                  "relative weights of the accelerations. Valid values are:\n"//&
@@ -3633,54 +3820,54 @@ subroutine legacy_barotropic_init(u, v, h, eta, Time, G, GV, param_file, diag, C
     call MOM_error(FATAL, "barotropic_init: BT_THICK_SCHEME FROM_BT_CONT "//&
                            "can only be used if USE_BT_CONT_TYPE is defined.")
 
-  call get_param(param_file, mod, "APPLY_BT_DRAG", apply_bt_drag, &
+  call get_param(param_file, mdl, "APPLY_BT_DRAG", apply_bt_drag, &
                  "If defined, bottom drag is applied within the \n"//&
                  "barotropic solver.", default=.true.)
-  call get_param(param_file, mod, "BT_STRONG_DRAG", CS%strong_drag, &
+  call get_param(param_file, mdl, "BT_STRONG_DRAG", CS%strong_drag, &
                  "If true, use a stronger estimate of the retarding \n"//&
                  "effects of strong bottom drag, by making it implicit \n"//&
                  "with the barotropic time-step instead of implicit with \n"//&
                  "the baroclinic time-step and dividing by the number of \n"//&
                  "barotropic steps.", default=.true.)
 
-  call get_param(param_file, mod, "CLIP_BT_VELOCITY", CS%clip_velocity, &
+  call get_param(param_file, mdl, "CLIP_BT_VELOCITY", CS%clip_velocity, &
                  "If true, limit any velocity components that exceed \n"//&
                  "MAXVEL.  This should only be used as a desperate \n"//&
                  "debugging measure.", default=.false.)
-  call get_param(param_file, mod, "MAXVEL", CS%maxvel, &
+  call get_param(param_file, mdl, "MAXVEL", CS%maxvel, &
                  "The maximum velocity allowed before the velocity \n"//&
                  "components are truncated.", units="m s-1", default=3.0e8, &
                  do_not_log=.not.CS%clip_velocity)
-  call get_param(param_file, mod, "MAXCFL_BT_CONT", CS%maxCFL_BT_cont, &
+  call get_param(param_file, mdl, "MAXCFL_BT_CONT", CS%maxCFL_BT_cont, &
                  "The maximum permitted CFL number associated with the \n"//&
                  "barotropic accelerations from the summed velocities \n"//&
                  "times the time-derivatives of thicknesses.", units="nondim", &
                  default=0.1)
 
-  call get_param(param_file, mod, "DT_BT_FILTER", CS%dt_bt_filter, &
+  call get_param(param_file, mdl, "DT_BT_FILTER", CS%dt_bt_filter, &
                  "A time-scale over which the barotropic mode solutions \n"//&
                  "are filtered, in seconds if positive, or as a fraction \n"//&
                  "of DT if negative. When used this can never be taken to \n"//&
                  "be longer than 2*dt.  Set this to 0 to apply no filtering.", &
                  units="sec or nondim", default=-0.25)
-  call get_param(param_file, mod, "G_BT_EXTRA", CS%G_extra, &
+  call get_param(param_file, mdl, "G_BT_EXTRA", CS%G_extra, &
                  "A nondimensional factor by which gtot is enhanced.", &
                  units="nondim", default=0.0)
-  call get_param(param_file, mod, "SSH_EXTRA", SSH_extra, &
+  call get_param(param_file, mdl, "SSH_EXTRA", SSH_extra, &
                  "An estimate of how much higher SSH might get, for use \n"//&
                  "in calculating the safe external wave speed. The \n"//&
                  "default is the minimum of 10 m or 5% of MAXIMUM_DEPTH.", &
                  units="m", default=min(10.0,0.05*G%max_depth))
 
-  call get_param(param_file, mod, "DEBUG", CS%debug, &
+  call get_param(param_file, mdl, "DEBUG", CS%debug, &
                  "If true, write out verbose debugging data.", default=.false.)
-  call get_param(param_file, mod, "DEBUG_BT", CS%debug_bt, &
+  call get_param(param_file, mdl, "DEBUG_BT", CS%debug_bt, &
                  "If true, write out verbose debugging data within the \n"//&
                  "barotropic time-stepping loop. The data volume can be \n"//&
                  "quite large if this is true.", default=CS%debug)
 
   CS%linearized_BT_PV = .true.
-  call get_param(param_file, mod, "BEBT", CS%bebt, &
+  call get_param(param_file, mdl, "BEBT", CS%bebt, &
                  "BEBT determines whether the barotropic time stepping \n"//&
                  "uses the forward-backward time-stepping scheme or a \n"//&
                  "backward Euler scheme. BEBT is valid in the range from \n"//&
@@ -3688,7 +3875,7 @@ subroutine legacy_barotropic_init(u, v, h, eta, Time, G, GV, param_file, diag, C
                  "gravity waves) to 1 (for a backward Euler treatment). \n"//&
                  "In practice, BEBT must be greater than about 0.05.", &
                  units="nondim", default=0.1)
-  call get_param(param_file, mod, "DTBT", CS%dtbt, &
+  call get_param(param_file, mdl, "DTBT", CS%dtbt, &
                  "The barotropic time step, in s. DTBT is only used with \n"//&
                  "the split explicit time stepping. To set the time step \n"//&
                  "automatically based the maximum stable value use 0, or \n"//&
@@ -3820,8 +4007,8 @@ subroutine legacy_barotropic_init(u, v, h, eta, Time, G, GV, param_file, diag, C
   call legacy_set_dtbt(G, GV, CS, gtot_est = gtot_estimate, SSH_add = SSH_extra)
   if (dtbt_input > 0.0) CS%dtbt = dtbt_input
 
-  call log_param(param_file, mod, "!DTBT as used", CS%dtbt)
-  call log_param(param_file, mod, "!estimated maximum DTBT", CS%dtbt_max)
+  call log_param(param_file, mdl, "!DTBT as used", CS%dtbt)
+  call log_param(param_file, mdl, "!estimated maximum DTBT", CS%dtbt_max)
 
   ! ubtav, vbtav, ubt_IC, vbt_IC, uhbt_IC, and vhbt_IC are allocated and
   ! initialized in register_barotropic_restarts.
@@ -3996,12 +4183,15 @@ subroutine legacy_barotropic_end(CS)
   deallocate(CS)
 end subroutine legacy_barotropic_end
 
+!> This subroutine is used to register any fields from MOM_barotropic.F90
+!! that should be written to or read from the restart file.
 subroutine register_legacy_barotropic_restarts(HI, GV, param_file, CS, restart_CS)
-  type(hor_index_type),    intent(in) :: HI
-  type(verticalGrid_type), intent(in) :: GV
-  type(param_file_type),   intent(in) :: param_file
-  type(legacy_barotropic_CS), pointer :: CS
-  type(MOM_restart_CS),    pointer    :: restart_CS
+  type(hor_index_type),    intent(in) :: HI         !< A horizontal index type structure.
+  type(verticalGrid_type), intent(in) :: GV         !< The ocean's vertical grid structure.
+  type(param_file_type),   intent(in) :: param_file !< A structure to parse for run-time parameters.
+  type(legacy_barotropic_CS), pointer :: CS         !< A pointer that is set to point to the control
+                                                    !! structure for this module.
+  type(MOM_restart_CS),    pointer    :: restart_CS !< A pointer to the restart control structure.
 ! This subroutine is used to register any fields from MOM_barotropic.F90
 ! that should be written to or read from the restart file.
 ! Arguments: HI - A horizontal index type structure.

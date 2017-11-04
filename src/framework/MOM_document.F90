@@ -1,23 +1,6 @@
 module MOM_document
-!***********************************************************************
-!*                   GNU General Public License                        *
-!* This file is a part of MOM.                                         *
-!*                                                                     *
-!* MOM is free software; you can redistribute it and/or modify it and  *
-!* are expected to follow the terms of the GNU General Public License  *
-!* as published by the Free Software Foundation; either version 2 of   *
-!* the License, or (at your option) any later version.                 *
-!*                                                                     *
-!* MOM is distributed in the hope that it will be useful, but WITHOUT  *
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY  *
-!* or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public    *
-!* License for more details.                                           *
-!*                                                                     *
-!* For the full text of the GNU General Public License,                *
-!* write to: Free Software Foundation, Inc.,                           *
-!*           675 Mass Ave, Cambridge, MA 02139, USA.                   *
-!* or see:   http://www.gnu.org/licenses/gpl.html                      *
-!***********************************************************************
+
+! This file is part of MOM6. See LICENSE.md for the license.
 
 !********+*********+*********+*********+*********+*********+*********+**
 !*                                                                     *
@@ -373,11 +356,12 @@ subroutine doc_closeBlock(doc, blockName)
   endif
 end subroutine doc_closeBlock
 
-subroutine doc_param_time(doc, varname, desc, units, val, default)
+subroutine doc_param_time(doc, varname, desc, units, val, default, layoutParam)
   type(doc_type),   pointer    :: doc
   character(len=*), intent(in) :: varname, desc, units
   type(time_type),  intent(in) :: val
   type(time_type),  optional, intent(in) :: default
+  logical,          optional, intent(in) :: layoutParam
 ! This subroutine handles parameter documentation for time-type variables.
 !  ### This needs to be written properly!
   integer :: numspc
@@ -394,7 +378,7 @@ subroutine doc_param_time(doc, varname, desc, units, val, default)
     if (len_trim(units) > 0) mesg = trim(mesg)//"   ["//trim(units)//"]"
 
     if (mesgHasBeenDocumented(doc, varName, mesg)) return ! Avoid duplicates
-    call writeMessageAndDesc(doc, mesg, desc, equalsDefault)
+    call writeMessageAndDesc(doc, mesg, desc, equalsDefault, layoutParam=layoutParam)
   endif
 
 end subroutine doc_param_time

@@ -1,6 +1,8 @@
 !> Regrid columns for the adaptive coordinate
 module coord_adapt
 
+! This file is part of MOM6. See LICENSE.md for the license.
+
 use MOM_EOS,           only : calculate_density_derivs
 use MOM_error_handler, only : MOM_error, FATAL
 use MOM_variables,     only : ocean_grid_type, thermo_var_ptrs
@@ -90,18 +92,18 @@ end subroutine set_adapt_params
 
 subroutine build_adapt_column(CS, G, GV, tv, i, j, zInt, tInt, sInt, h, zNext)
   type(adapt_CS),                              intent(in)    :: CS
-  type(ocean_grid_type),                       intent(in)    :: G
-  type(verticalGrid_type),                     intent(in)    :: GV
-  type(thermo_var_ptrs),                       intent(in)    :: tv
+  type(ocean_grid_type),                       intent(in)    :: G    !< The ocean's grid structure
+  type(verticalGrid_type),                     intent(in)    :: GV   !< The ocean's vertical grid structure
+  type(thermo_var_ptrs),                       intent(in)    :: tv   !< A structure pointing to various thermodynamic variables
   integer,                                     intent(in)    :: i, j
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1), intent(in)    :: zInt, tInt, sInt
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),   intent(in)    :: h
+  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),   intent(in)    :: h    !< Layer thicknesses, in H (usually m or kg m-2)
   real, dimension(SZK_(GV)+1),                 intent(inout) :: zNext ! updated interface positions
 
   ! Local variables
   integer :: k, nz
   real :: h_up, b1, b_denom_1, d1, depth, drdz, nominal_z, stretching
-  real, dimension(SZK_(GV)+1) :: alpha, beta, dzInterface ! drho/dT and drho/dS
+  real, dimension(SZK_(GV)+1) :: alpha, beta, del2sigma ! drho/dT and drho/dS
   real, dimension(SZK_(GV)) :: kGrid, c1 ! grid diffusivity on layers, and tridiagonal work array
 
   nz = CS%nk
@@ -113,6 +115,13 @@ subroutine build_adapt_column(CS, G, GV, tv, i, j, zInt, tInt, sInt, h, zNext)
   ! local depth for scaling diffusivity
   depth = G%bathyT(i,j) * GV%m_to_H
 
+  ! initialize del2sigma to zero
+  del2sigma(:) = 0.
+
+  ! calculate del-squared of neutral density by a
+  ! stencilled finite difference
+  ! TODO: this needs to be adjusted to account for vanished layers near topography
+
   ! up (j-1)
   if (G%mask2dT(i,j-1) > 0.) then
     call calculate_density_derivs( &
@@ -121,7 +130,7 @@ subroutine build_adapt_column(CS, G, GV, tv, i, j, zInt, tInt, sInt, h, zNext)
          0.5 * (zInt(i,j,2:nz) + zInt(i,j-1,2:nz)) * GV%H_to_Pa, &
          alpha, beta, 2, nz - 1, tv%eqn_of_state)
 
-    dzInterface(2:nz) = dzInterface(2:nz) + &
+    del2sigma(2:nz) = del2sigma(2:nz) + &
          (alpha(2:nz) * (tInt(i,j-1,2:nz) - tInt(i,j,2:nz)) + &
           beta(2:nz)  * (sInt(i,j-1,2:nz) - sInt(i,j,2:nz)))
   endif
@@ -133,7 +142,7 @@ subroutine build_adapt_column(CS, G, GV, tv, i, j, zInt, tInt, sInt, h, zNext)
          0.5 * (zInt(i,j,2:nz) + zInt(i,j+1,2:nz)) * GV%H_to_Pa, &
          alpha, beta, 2, nz - 1, tv%eqn_of_state)
 
-    dzInterface(2:nz) = dzInterface(2:nz) + &
+    del2sigma(2:nz) = del2sigma(2:nz) + &
          (alpha(2:nz) * (tInt(i,j+1,2:nz) - tInt(i,j,2:nz)) + &
           beta(2:nz)  * (sInt(i,j+1,2:nz) - sInt(i,j,2:nz)))
   endif
@@ -145,7 +154,7 @@ subroutine build_adapt_column(CS, G, GV, tv, i, j, zInt, tInt, sInt, h, zNext)
          0.5 * (zInt(i,j,2:nz) + zInt(i-1,j,2:nz)) * GV%H_to_Pa, &
          alpha, beta, 2, nz - 1, tv%eqn_of_state)
 
-    dzInterface(2:nz) = dzInterface(2:nz) + &
+    del2sigma(2:nz) = del2sigma(2:nz) + &
          (alpha(2:nz) * (tInt(i-1,j,2:nz) - tInt(i,j,2:nz)) + &
           beta(2:nz)  * (sInt(i-1,j,2:nz) - sInt(i,j,2:nz)))
   endif
@@ -157,34 +166,34 @@ subroutine build_adapt_column(CS, G, GV, tv, i, j, zInt, tInt, sInt, h, zNext)
          0.5 * (zInt(i,j,2:nz) + zInt(i+1,j,2:nz)) * GV%H_to_Pa, &
          alpha, beta, 2, nz - 1, tv%eqn_of_state)
 
-    dzInterface(2:nz) = dzInterface(2:nz) + &
+    del2sigma(2:nz) = del2sigma(2:nz) + &
          (alpha(2:nz) * (tInt(i+1,j,2:nz) - tInt(i,j,2:nz)) + &
           beta(2:nz)  * (sInt(i+1,j,2:nz) - sInt(i,j,2:nz)))
   endif
 
-  ! at this point, dzInterface contains the local neutral density curvature at
+  ! at this point, del2sigma contains the local neutral density curvature at
   ! h-points, on interfaces
   ! we need to divide by drho/dz to give an interfacial displacement
   !
   ! a positive curvature means we're too light relative to adjacent columns,
-  ! so dzInterface needs to be positive too (push the interface deeper)
+  ! so del2sigma needs to be positive too (push the interface deeper)
   call calculate_density_derivs(tInt(i,j,:), sInt(i,j,:), zInt(i,j,:) * GV%H_to_Pa, &
        alpha, beta, 1, nz + 1, tv%eqn_of_state)
   do K = 2, nz
     ! TODO make lower bound here configurable
-    dzInterface(K) = dzInterface(K) * (0.5 * (h(i,j,k-1) + h(i,j,k))) / &
+    del2sigma(K) = del2sigma(K) * (0.5 * (h(i,j,k-1) + h(i,j,k))) / &
          max(alpha(K) * (tv%T(i,j,k) - tv%T(i,j,k-1)) + &
              beta(K)  * (tv%S(i,j,k) - tv%S(i,j,k-1)), 1e-20)
 
     ! don't move the interface so far that it would tangle with another
     ! interface in the direction we're moving (or exceed a Nyquist limit
     ! that could cause oscillations of the interface)
-    h_up = merge(h(i,j,k), h(i,j,k-1), dzInterface(K) > 0.)
-    dzInterface(K) = 0.5 * CS%adaptAlpha * &
-         sign(min(abs(dzInterface(K)), 0.5 * h_up), dzInterface(K))
+    h_up = merge(h(i,j,k), h(i,j,k-1), del2sigma(K) > 0.)
+    del2sigma(K) = 0.5 * CS%adaptAlpha * &
+         sign(min(abs(del2sigma(K)), 0.5 * h_up), del2sigma(K))
 
     ! update interface positions so we can diffuse them
-    zNext(K) = zInt(i,j,K) + dzInterface(K)
+    zNext(K) = zInt(i,j,K) + del2sigma(K)
   enddo
 
   ! solve diffusivity equation to smooth grid
